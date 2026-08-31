@@ -1,0 +1,11 @@
+FSHOnly: true
+id: example-fhir-server
+canonical: http://example.org/fhir
+name: ExampleFHIRServer
+title: "Example FHIR R5 Server"
+description: A FHIR R5 server built with Bun, driven by FSH definitions
+status: draft
+version: 0.1.0
+fhirVersion: 5.0.0
+copyrightYear: 2026+
+releaseLabel: ci-build

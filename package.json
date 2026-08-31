@@ -1,0 +1,16 @@
+{
+  "name": "sushi_bun",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build:sushi": "npx sushi build .",
+    "start": "bun run src/index.ts",
+    "dev": "bun --hot run src/index.ts",
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "fsh-sushi": "^3.20.1"
+  }
+}
