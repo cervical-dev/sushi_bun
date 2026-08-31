@@ -7,6 +7,7 @@ export async function handleUpdate(req: Request, config: ResourceConfig, store: 
   const pathParts = url.pathname.split("/").filter(Boolean);
   const resourceType = pathParts[0]!;
   const id = pathParts[1]!;
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   if (!config.interactions.has("update")) {
     return createOperationOutcome("error", "not-supported", `Update not supported for ${resourceType}`, 405);
@@ -62,8 +63,9 @@ export async function handleUpdate(req: Request, config: ResourceConfig, store: 
             status: 201,
             headers: {
               "Content-Type": "application/fhir+json",
-              Location: `${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
+              Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
               ETag: `W/"${resource.meta?.versionId}"`,
+              "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
             },
           });
         }
@@ -80,8 +82,9 @@ export async function handleUpdate(req: Request, config: ResourceConfig, store: 
     status: 200,
     headers: {
       "Content-Type": "application/fhir+json",
-      Location: `${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
+      Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
       ETag: `W/"${resource.meta?.versionId}"`,
+      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
     },
   });
 }

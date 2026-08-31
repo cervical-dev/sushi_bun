@@ -7,6 +7,7 @@ export function handleRead(req: Request, config: ResourceConfig, store: Resource
   const pathParts = url.pathname.split("/").filter(Boolean);
   const resourceType = pathParts[0]!;
   const id = pathParts[1]!;
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   const vidStr = pathParts[3];
   if (vidStr) {
@@ -29,7 +30,7 @@ export function handleRead(req: Request, config: ResourceConfig, store: Resource
         "Content-Type": "application/fhir+json",
         ETag: etag,
         "Last-Modified": lastModified,
-        Location: `${resourceType}/${id}/_history/${resource.meta?.versionId}`,
+        Location: `${baseUrl}/${resourceType}/${id}/_history/${resource.meta?.versionId}`,
       },
     });
   }

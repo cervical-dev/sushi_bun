@@ -1,11 +1,5 @@
 import type { ResourceConfig, RouteConfig, SearchParamConfig, OperationConfig } from "./types.ts";
 
-// Add OperationConfig to types
-export interface OperationConfig {
-  name: string;
-  definition: string;
-}
-
 interface CapabilityStatementJson {
   resourceType: "CapabilityStatement";
   rest?: Array<{

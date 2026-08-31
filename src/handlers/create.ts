@@ -6,6 +6,7 @@ export async function handleCreate(req: Request, config: ResourceConfig, store: 
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const resourceType = pathParts[0]!;
+  const baseUrl = `${url.protocol}//${url.host}`;
 
   if (!config.interactions.has("create")) {
     return createOperationOutcome("error", "not-supported", `Create not supported for ${resourceType}`, 405);
@@ -37,8 +38,9 @@ export async function handleCreate(req: Request, config: ResourceConfig, store: 
     status: 201,
     headers: {
       "Content-Type": "application/fhir+json",
-      Location: `${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
+      Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
       ETag: `W/"${resource.meta?.versionId}"`,
+      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
     },
   });
 }

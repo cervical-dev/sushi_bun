@@ -1,33 +1,13 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { Database } from "bun:sqlite";
-import { createResourceStore } from "../../src/store/resource-store.ts";
+import { createTestStore } from "../helpers.ts";
 import { buildRoutes } from "../../src/router/generator.ts";
 import type { RouteConfig } from "../../src/fhir/types.ts";
 
 describe("buildRoutes", () => {
-  let db: Database;
-  let store: ReturnType<typeof createResourceStore>;
+  let store: ReturnType<typeof createTestStore>["store"];
 
   beforeEach(() => {
-    db = new Database(":memory:");
-    db.run("PRAGMA journal_mode = WAL;");
-    db.run(`
-      CREATE TABLE IF NOT EXISTS resources (
-        id TEXT NOT NULL, resource_type TEXT NOT NULL, version_id INTEGER DEFAULT 1,
-        last_updated TEXT NOT NULL, is_deleted INTEGER DEFAULT 0, data TEXT NOT NULL,
-        PRIMARY KEY (id, resource_type)
-      )
-    `);
-    db.run(`
-      CREATE TABLE IF NOT EXISTS resources_history (
-        id TEXT NOT NULL, resource_type TEXT NOT NULL, version_id INTEGER NOT NULL,
-        last_updated TEXT NOT NULL, data TEXT NOT NULL,
-        PRIMARY KEY (id, resource_type, version_id)
-      )
-    `);
-    db.run("CREATE INDEX IF NOT EXISTS idx_resources_type ON resources(resource_type)");
-    db.run("CREATE INDEX IF NOT EXISTS idx_resources_type_deleted ON resources(resource_type, is_deleted)");
-    store = createResourceStore(db);
+    store = createTestStore().store;
   });
 
   it("generates metadata route", () => {
@@ -146,5 +126,34 @@ describe("buildRoutes", () => {
 
     const routes = buildRoutes(config, store, {});
     expect(routes["/"]).toBeDefined();
+  });
+
+  it("generates operation routes from capability", () => {
+    const config: RouteConfig = {
+      resources: new Map([
+        [
+          "Patient",
+          {
+            type: "Patient",
+            interactions: new Set(["read"]),
+            searchParams: new Map(),
+            operations: [{ name: "everything", definition: "http://hl7.org/fhir/OperationDefinition/Patient-everything" }],
+            versioning: "no-version",
+            readHistory: false,
+            updateCreate: false,
+            conditionalCreate: false,
+            conditionalRead: "not-supported",
+            conditionalUpdate: false,
+            conditionalDelete: "not-supported",
+          },
+        ],
+      ]),
+      systemInteractions: new Set(),
+    };
+
+    const routes = buildRoutes(config, store, {});
+    expect(routes["/Patient/$everything"]).toBeDefined();
+    const opHandlers = routes["/Patient/$everything"] as any;
+    expect(opHandlers.POST).toBeDefined();
   });
 });

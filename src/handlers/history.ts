@@ -35,9 +35,7 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
   });
 
   const baseUrl = `${url.protocol}//${url.host}`;
-  const selfUrl = `${baseUrl}/${resourceType}/${id}/_history`;
-
-  const links: BundleLink[] = [{ relation: "self", url: selfUrl }];
+  const links: BundleLink[] = [{ relation: "self", url: `${baseUrl}/${resourceType}/${id}/_history` }];
 
   const bundle: Bundle = {
     resourceType: "Bundle",
@@ -49,8 +47,6 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
 
   return Response.json(bundle, {
     status: 200,
-    headers: {
-      "Content-Type": "application/fhir+json",
-    },
+    headers: { "Content-Type": "application/fhir+json" },
   });
 }

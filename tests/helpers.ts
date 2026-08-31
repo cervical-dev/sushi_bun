@@ -13,12 +13,8 @@ export interface TestServer {
   stop: () => void;
 }
 
-export async function createTestServer(capabilityPath: string): Promise<TestServer> {
-  const capabilityFile = Bun.file(capabilityPath);
-  const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
-  const config = parseCapabilityStatement(capabilityJson as any);
-
-  const db = new Database(":memory:");
+function createTestDb(path?: string): Database {
+  const db = new Database(path ?? ":memory:");
   db.run("PRAGMA journal_mode = WAL;");
   db.run("PRAGMA foreign_keys = ON;");
   db.run(`
@@ -44,7 +40,15 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
   `);
   db.run("CREATE INDEX IF NOT EXISTS idx_resources_type ON resources(resource_type)");
   db.run("CREATE INDEX IF NOT EXISTS idx_resources_type_deleted ON resources(resource_type, is_deleted)");
+  return db;
+}
 
+export async function createTestServer(capabilityPath: string): Promise<TestServer> {
+  const capabilityFile = Bun.file(capabilityPath);
+  const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
+  const config = parseCapabilityStatement(capabilityJson as any);
+
+  const db = createTestDb();
   const store = createResourceStore(db);
   const routes = buildRoutes(config, store, capabilityJson);
 
@@ -63,10 +67,8 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
     },
   });
 
-  const baseUrl = server.url.toString();
-
   return {
-    baseUrl,
+    baseUrl: server.url.toString(),
     store,
     config,
     server,
@@ -76,6 +78,11 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
       db.close();
     },
   };
+}
+
+export function createTestStore(): { store: ResourceStore; db: Database } {
+  const db = createTestDb();
+  return { store: createResourceStore(db), db };
 }
 
 export function samplePatient(overrides?: Record<string, unknown>) {

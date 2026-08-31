@@ -99,6 +99,45 @@ describe("Batch and Transaction operations", () => {
       expect(body.entry[0].response.status).toBe("201");
       expect(body.entry[1].response.status).toBe("201");
     });
+
+    it("rolls back all entries when one fails in a transaction", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "transaction",
+          entry: [
+            {
+              fullUrl: "urn:uuid:good-patient",
+              request: { method: "POST", url: "Patient" },
+              resource: samplePatient({ name: [{ family: "ShouldBeRolledBack" }] }),
+            },
+            {
+              fullUrl: "urn:uuid:bad-entry",
+              request: { method: "POST", url: "Encounter" },
+              resource: { resourceType: "Encounter", status: "planned" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.type).toBe("transaction-response");
+
+      expect(body.entry.length).toBe(2);
+
+      const goodResult = body.entry[0].response;
+      const badResult = body.entry[1].response;
+
+      expect(goodResult.status).toBe("422");
+      expect(badResult.status).toBe("404");
+
+      const searchRes = await fetch(`${server.baseUrl}/Patient?name=ShouldBeRolledBack`);
+      const searchBody = await searchRes.json();
+      expect(searchBody.total).toBe(0);
+    });
   });
 
   describe("error handling", () => {
