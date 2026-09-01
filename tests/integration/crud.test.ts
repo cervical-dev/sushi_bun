@@ -136,6 +136,101 @@ describe("Patient CRUD operations", () => {
 
       expect(res.status).toBe(200);
     });
+
+    it("returns 400 when body id does not match URL id", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Patient",
+          id: "wrong-id",
+          name: [{ family: "Mismatch" }],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.resourceType).toBe("OperationOutcome");
+    });
+
+    it("returns 400 for invalid If-Match format", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/fhir+json",
+          "If-Match": "garbage-value",
+        },
+        body: JSON.stringify({
+          resourceType: "Patient",
+          id: created.id,
+          name: [{ family: "Test" }],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.resourceType).toBe("OperationOutcome");
+    });
+
+    it("returns 404 for non-existent patient when updateCreate is false", async () => {
+      const config = server.config.resources.get("Patient")!;
+      const originalUpdateCreate = config.updateCreate;
+      config.updateCreate = false;
+
+      try {
+        const res = await fetch(`${server.baseUrl}/Patient/non-existent-id`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/fhir+json" },
+          body: JSON.stringify({
+            resourceType: "Patient",
+            id: "non-existent-id",
+            name: [{ family: "Ghost" }],
+            gender: "male",
+            birthDate: "2000-01-01",
+            identifier: [{ system: "http://example.org/mrn", value: "ghost" }],
+          }),
+        });
+
+        expect(res.status).toBe(404);
+        const body = await res.json();
+        expect(body.resourceType).toBe("OperationOutcome");
+      } finally {
+        config.updateCreate = originalUpdateCreate;
+      }
+    });
+
+    it("creates on PUT when updateCreate is true", async () => {
+      const config = server.config.resources.get("Patient")!;
+      const originalUpdateCreate = config.updateCreate;
+      config.updateCreate = true;
+
+      try {
+        const res = await fetch(`${server.baseUrl}/Patient/update-create-id`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/fhir+json" },
+          body: JSON.stringify({
+            resourceType: "Patient",
+            id: "update-create-id",
+            name: [{ family: "Created" }],
+            gender: "female",
+            birthDate: "1995-06-15",
+            identifier: [{ system: "http://example.org/mrn", value: "uc1" }],
+          }),
+        });
+
+        expect(res.status).toBe(201);
+        const body = await res.json();
+        expect(body.id).toBe("update-create-id");
+        expect(body.meta?.versionId).toBe("1");
+        expect(res.headers.get("Location")).toContain("Patient/update-create-id");
+      } finally {
+        config.updateCreate = originalUpdateCreate;
+      }
+    });
   });
 
   describe("delete", () => {
@@ -159,6 +254,18 @@ describe("Patient CRUD operations", () => {
 
       expect(res.status).toBe(404);
     });
+
+    it("returns proper headers on delete", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}`, {
+        method: "DELETE",
+      });
+
+      expect(res.status).toBe(204);
+      expect(res.headers.get("Content-Type")).toBe("application/fhir+json");
+      expect(res.headers.get("ETag")).toBe('W/"2"');
+    });
   });
 
   describe("history", () => {
@@ -172,6 +279,47 @@ describe("Patient CRUD operations", () => {
       expect(body.resourceType).toBe("Bundle");
       expect(body.type).toBe("history");
       expect(body.entry.length).toBe(2);
+    });
+
+    it("returns 404 for history on non-existent resource", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient/non-existent/_history`);
+      expect(res.status).toBe(404);
+    });
+
+    it("includes delete in version history", async () => {
+      const created = server.store.create("Patient", samplePatient());
+      server.store.softDelete("Patient", created.id!);
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry.length).toBe(2);
+    });
+  });
+
+  describe("version read", () => {
+    it("reads a specific version", async () => {
+      const created = server.store.create("Patient", samplePatient());
+      server.store.update("Patient", created.id!, { ...samplePatient(), gender: "female" });
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history/1`);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.meta?.versionId).toBe("1");
+    });
+
+    it("returns 404 for non-existent version", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history/999`);
+      expect(res.status).toBe(404);
+    });
+
+    it("returns 400 for invalid version id", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history/notanumber`);
+      expect(res.status).toBe(400);
     });
   });
 });

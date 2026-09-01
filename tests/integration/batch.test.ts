@@ -185,5 +185,183 @@ describe("Batch and Transaction operations", () => {
       const body = await res.json();
       expect(body.entry[0].response.status).toBe("404");
     });
+
+    it("rejects empty bundle entries", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [],
+        }),
+      });
+
+      expect(res.status).toBe(400);
+    });
+
+    it("rejects entry missing request", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              resource: samplePatient(),
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects POST entry missing resource", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "POST", url: "Patient" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects PUT entry without id in URL", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "PUT", url: "Patient" },
+              resource: samplePatient(),
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects PUT entry missing resource", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "PUT", url: `Patient/${created.id}` },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects DELETE entry without id", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "DELETE", url: "Patient" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects unsupported HTTP method", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "PATCH", url: "Patient/123" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("rejects GET entry without id in URL", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "GET", url: "Patient" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("400");
+    });
+
+    it("reports 405 for POST to resource without create interaction", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "POST", url: "Observation" },
+              resource: { resourceType: "Observation", status: "final", code: { coding: [] } },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.entry[0].response.status).toBe("405");
+    });
   });
 });

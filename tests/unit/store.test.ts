@@ -152,4 +152,24 @@ describe("ResourceStore", () => {
     expect(results.length).toBe(1);
     expect(results[0]!.name).toEqual([{ family: "Before" }]);
   });
+
+  it("readVersion returns correct version data", () => {
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }] };
+    const created = store.create("Patient", patient);
+    store.update("Patient", created.id!, { ...patient, gender: "male" });
+
+    const v1 = store.readVersion("Patient", created.id!, 1);
+    expect(v1).toBeTruthy();
+    expect(v1!.meta?.versionId).toBe("1");
+
+    const v2 = store.readVersion("Patient", created.id!, 2);
+    expect(v2).toBeTruthy();
+    expect(v2!.meta?.versionId).toBe("2");
+  });
+
+  it("readVersion returns null for non-existent version", () => {
+    const created = store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    const result = store.readVersion("Patient", created.id!, 999);
+    expect(result).toBeNull();
+  });
 });

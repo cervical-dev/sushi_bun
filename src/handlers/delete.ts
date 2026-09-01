@@ -17,5 +17,14 @@ export function handleDelete(req: Request, config: ResourceConfig, store: Resour
     return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
   }
 
-  return new Response(null, { status: 204 });
+  const versions = store.listVersions(resourceType, id);
+  const versionId = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
+
+  return new Response(null, {
+    status: 204,
+    headers: {
+      "Content-Type": "application/fhir+json",
+      ETag: `W/"${versionId}"`,
+    },
+  });
 }
