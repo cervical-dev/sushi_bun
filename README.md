@@ -2,6 +2,8 @@
 
 A FHIR R5 server powered by [Bun](https://bun.sh) and [FSH SUSHI](https://fshschool.org).
 
+> **Not production-ready.** This is a development and prototyping tool. It is not yet designed for production use. Use it to explore FHIR server design, test clients, or prototype APIs.
+
 Write your FHIR server's contract in **FHIR Shorthand** (`.fsh` files). SUSHI compiles them to JSON. This server reads that JSON at startup and dynamically generates every route, handler, and search parameter — no hardcoded resource types, no static config files, no hand-written routes.
 
 **Change the FSH, restart the server, get a different API.**
@@ -144,7 +146,6 @@ The test suite covers:
 - **Integration tests**: Full HTTP request/response cycles against a running server, verifying that the server only exposes routes declared in the CapabilityStatement
 
 ```
-74 tests passing
 ├── Unit
 │   ├── capability.test.ts    # Parse CapabilityStatement → config
 │   ├── store.test.ts         # SQLite CRUD + versioning
