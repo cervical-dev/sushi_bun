@@ -23,18 +23,18 @@ describe("Batch and Transaction operations", () => {
           entry: [
             {
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Batch1" }] }),
+              resource: samplePatient({ name: [{ family: "Batch1", given: ["Patient1"] }] }),
             },
             {
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Batch2" }] }),
+              resource: samplePatient({ name: [{ family: "Batch2", given: ["Patient2"] }] }),
             },
           ],
         }),
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("Bundle");
       expect(body.type).toBe("batch-response");
       expect(body.entry.length).toBe(2);
@@ -63,7 +63,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("200");
       expect(body.entry[1].response.status).toBe("204");
     });
@@ -81,19 +81,19 @@ describe("Batch and Transaction operations", () => {
             {
               fullUrl: "urn:uuid:patient-1",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Tx1" }] }),
+              resource: samplePatient({ name: [{ family: "Tx1", given: ["Patient1"] }] }),
             },
             {
               fullUrl: "urn:uuid:patient-2",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Tx2" }] }),
+              resource: samplePatient({ name: [{ family: "Tx2", given: ["Patient2"] }] }),
             },
           ],
         }),
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.type).toBe("transaction-response");
       expect(body.entry.length).toBe(2);
       expect(body.entry[0].response.status).toBe("201");
@@ -111,7 +111,7 @@ describe("Batch and Transaction operations", () => {
             {
               fullUrl: "urn:uuid:good-patient",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "ShouldBeRolledBack" }] }),
+              resource: samplePatient({ name: [{ family: "ShouldBeRolledBack", given: ["Rollback"] }] }),
             },
             {
               fullUrl: "urn:uuid:bad-entry",
@@ -123,7 +123,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.type).toBe("transaction-response");
 
       expect(body.entry.length).toBe(2);
@@ -135,7 +135,7 @@ describe("Batch and Transaction operations", () => {
       expect(badResult.status).toBe("404");
 
       const searchRes = await fetch(`${server.baseUrl}/Patient?name=ShouldBeRolledBack`);
-      const searchBody = await searchRes.json();
+      const searchBody = await searchRes.json() as Record<string, any>;
       expect(searchBody.total).toBe(0);
     });
   });
@@ -182,7 +182,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("404");
     });
 
@@ -216,7 +216,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -236,7 +236,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -257,7 +257,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -279,7 +279,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -299,7 +299,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -319,7 +319,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -339,7 +339,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("400");
     });
 
@@ -360,7 +360,7 @@ describe("Batch and Transaction operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("405");
     });
   });

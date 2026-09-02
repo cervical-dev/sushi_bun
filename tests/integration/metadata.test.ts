@@ -16,7 +16,7 @@ describe("Metadata endpoint", () => {
     const res = await fetch(`${server.baseUrl}/metadata`);
     expect(res.status).toBe(200);
 
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("CapabilityStatement");
     expect(body.fhirVersion).toBe("5.0.0");
     expect(body.kind).toBe("instance");
@@ -24,7 +24,7 @@ describe("Metadata endpoint", () => {
 
   it("includes Patient resource in capability", async () => {
     const res = await fetch(`${server.baseUrl}/metadata`);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
 
     const patientResource = body.rest[0].resource.find((r: { type: string }) => r.type === "Patient");
     expect(patientResource).toBeDefined();
@@ -35,7 +35,7 @@ describe("Metadata endpoint", () => {
 
   it("includes search parameters for Patient", async () => {
     const res = await fetch(`${server.baseUrl}/metadata`);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
 
     const patientResource = body.rest[0].resource.find((r: { type: string }) => r.type === "Patient");
     expect(patientResource.searchParam.length).toBeGreaterThan(0);

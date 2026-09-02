@@ -1,17 +1,27 @@
 import type { RouteConfig, Bundle, BundleEntry, FhirResource } from "../fhir/types.ts";
+import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
+import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
+import { validateResource } from "../fhir/validator.ts";
 import { createOperationOutcome } from "./metadata.ts";
 
-interface EntryResult {
+interface ValidatableEntry {
   entry: BundleEntry;
-  error?: string;
+  operation: string;
+  index: number;
+}
+
+interface Slot {
+  index: number;
+  response?: BundleEntry;
+  validatable?: ValidatableEntry;
 }
 
 function validateEntry(
   entry: BundleEntry,
   config: RouteConfig,
   tempIdMap: Map<string, string>
-): EntryResult | null {
+): { entry: BundleEntry; error?: string } {
   if (!entry.request) {
     return {
       entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "Entry must have a request" }] } } },
@@ -85,8 +95,6 @@ function executeEntry(
   const resourceType = urlParts[0]!;
   const id = urlParts[1];
 
-  const resourceConfig = config.resources.get(resourceType)!;
-
   switch (operation) {
     case "create": {
       const resource = entry.resource as FhirResource;
@@ -142,10 +150,55 @@ function executeEntry(
   }
 }
 
+function validateResourceEntry(
+  entry: BundleEntry,
+  validators: ValidatorRegistry
+): BundleEntry | null {
+  const resource = entry.resource as Record<string, unknown>;
+  if (!resource) return null;
+
+  const resourceType = (resource as FhirResource).resourceType;
+  const profileUrl = getProfileUrl(resource);
+  const sd = validators.getValidator(resourceType, profileUrl);
+  if (!sd) return null;
+
+  const validation = validateResource(resource, sd);
+  if (!validation.valid) {
+    return {
+      response: {
+        status: "422",
+        outcome: {
+          resourceType: "OperationOutcome",
+          issue: validation.issues.map((i) => ({
+            severity: i.severity,
+            code: i.code,
+            diagnostics: i.diagnostics,
+            location: i.location ? [i.location] : undefined,
+          })),
+        },
+      },
+    };
+  }
+  return null;
+}
+
+function makeTransactionError(): BundleEntry {
+  return {
+    response: {
+      status: "422",
+      outcome: {
+        resourceType: "OperationOutcome",
+        issue: [{ severity: "error", code: "transaction-failed", diagnostics: "Transaction aborted due to validation errors" }],
+      },
+    },
+  };
+}
+
 export async function handleBatch(
   req: Request,
   config: RouteConfig,
-  store: ResourceStore
+  store: ResourceStore,
+  validators?: ValidatorRegistry
 ): Promise<Response> {
   const contentType = req.headers.get("Content-Type") ?? "";
   if (!contentType.includes("application/fhir+json") && !contentType.includes("application/json")) {
@@ -174,66 +227,53 @@ export async function handleBatch(
   const isTransaction = body.type === "transaction";
   const tempIdMap = new Map<string, string>();
 
-  const validations: Array<{ entry: BundleEntry; operation: string }> = [];
-  const preErrors: BundleEntry[] = [];
+  const slots: Slot[] = [];
 
-  for (const entry of body.entry) {
-    const result = validateEntry(entry, config, tempIdMap);
-    if (result) {
-      if (result.error) {
-        validations.push({ entry: result.entry, operation: result.error });
-      } else {
-        preErrors.push(result.entry);
+  for (let i = 0; i < body.entry.length; i++) {
+    const rawEntry = body.entry[i]!;
+    const result = validateEntry(rawEntry, config, tempIdMap);
+
+    if (!result.error) {
+      slots.push({ index: i, response: result.entry });
+      continue;
+    }
+
+    if (validators) {
+      const resourceError = validateResourceEntry(result.entry, validators);
+      if (resourceError) {
+        slots.push({ index: i, response: resourceError });
+        continue;
       }
     }
-  }
 
-  if (isTransaction && preErrors.length > 0) {
-    const responseEntries: BundleEntry[] = validations.map((v) => ({
-      response: {
-        status: "422",
-        outcome: {
-          resourceType: "OperationOutcome",
-          issue: [{ severity: "error", code: "transaction-failed", diagnostics: "Transaction aborted due to validation errors" }],
-        },
-      },
-    }));
-    responseEntries.push(...preErrors);
-    return Response.json(
-      { resourceType: "Bundle", type: "transaction-response", entry: responseEntries },
-      { status: 200, headers: { "Content-Type": "application/fhir+json" } }
-    );
+    slots.push({
+      index: i,
+      validatable: { entry: result.entry, operation: result.error, index: i },
+    });
   }
-
-  if (!isTransaction && preErrors.length > 0) {
-    const responseEntries: BundleEntry[] = [...preErrors];
-    for (const v of validations) {
-      try {
-        responseEntries.push(executeEntry(v.entry, v.operation, store, config, tempIdMap));
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "Unknown error";
-        responseEntries.push({ response: { status: "500", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "exception", diagnostics: message }] } } });
-      }
-    }
-    return Response.json(
-      { resourceType: "Bundle", type: "batch-response", entry: responseEntries },
-      { status: 200, headers: { "Content-Type": "application/fhir+json" } }
-    );
-  }
-
-  let responseEntries: BundleEntry[];
 
   if (isTransaction) {
+    const hasErrors = slots.some((s) => s.response);
+    if (hasErrors) {
+      const responseEntries = slots.map((s) => s.response ?? makeTransactionError());
+      return Response.json(
+        { resourceType: "Bundle", type: "transaction-response", entry: responseEntries },
+        { status: 200, headers: { "Content-Type": "application/fhir+json" } }
+      );
+    }
+
+    const validEntries = slots.filter((s) => s.validatable).map((s) => s.validatable!);
+    let responseEntries: BundleEntry[];
     try {
       responseEntries = store.transaction(() => {
         const results: BundleEntry[] = [];
-        for (const { entry, operation } of validations) {
+        for (const { entry, operation } of validEntries) {
           results.push(executeEntry(entry, operation, store, config, tempIdMap));
         }
         return results;
       });
     } catch (err) {
-      responseEntries = validations.map(() => ({
+      responseEntries = validEntries.map(() => ({
         response: {
           status: "422",
           outcome: {
@@ -243,11 +283,19 @@ export async function handleBatch(
         },
       }));
     }
-  } else {
-    responseEntries = [];
-    for (const { entry, operation } of validations) {
+    return Response.json(
+      { resourceType: "Bundle", type: "transaction-response", entry: responseEntries },
+      { status: 200, headers: { "Content-Type": "application/fhir+json" } }
+    );
+  }
+
+  const responseEntries: BundleEntry[] = [];
+  for (const slot of slots) {
+    if (slot.response) {
+      responseEntries.push(slot.response);
+    } else if (slot.validatable) {
       try {
-        responseEntries.push(executeEntry(entry, operation, store, config, tempIdMap));
+        responseEntries.push(executeEntry(slot.validatable.entry, slot.validatable.operation, store, config, tempIdMap));
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         responseEntries.push({ response: { status: "500", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "exception", diagnostics: message }] } } });
@@ -255,9 +303,8 @@ export async function handleBatch(
     }
   }
 
-  const responseType = isTransaction ? "transaction-response" : "batch-response";
   return Response.json(
-    { resourceType: "Bundle", type: responseType, entry: responseEntries },
+    { resourceType: "Bundle", type: "batch-response", entry: responseEntries },
     { status: 200, headers: { "Content-Type": "application/fhir+json" } }
   );
 }

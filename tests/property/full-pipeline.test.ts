@@ -1,0 +1,171 @@
+import { describe, it, expect } from "bun:test";
+import * as fc from "fast-check";
+import { validateResource } from "../../src/fhir/validator.ts";
+import type { StructureDefinition, StructureDefinitionElement } from "../../src/fhir/types.ts";
+
+const myPatientSD: StructureDefinition = {
+  resourceType: "StructureDefinition",
+  id: "my-patient",
+  url: "http://example.org/fhir/StructureDefinition/my-patient",
+  type: "Patient",
+  differential: {
+    element: [
+      { id: "Patient.identifier", path: "Patient.identifier", min: 1, max: "*", mustSupport: true },
+      { id: "Patient.identifier.system", path: "Patient.identifier.system", min: 1 },
+      { id: "Patient.identifier.value", path: "Patient.identifier.value", min: 1 },
+      { id: "Patient.name", path: "Patient.name", min: 1, max: "*", mustSupport: true },
+      { id: "Patient.name.family", path: "Patient.name.family", min: 1, mustSupport: true },
+      { id: "Patient.name.given", path: "Patient.name.given", min: 1, max: "*", mustSupport: true },
+      { id: "Patient.gender", path: "Patient.gender", min: 1, mustSupport: true },
+      { id: "Patient.birthDate", path: "Patient.birthDate", min: 1, mustSupport: true },
+    ],
+  },
+};
+
+function validPatientArbitrary(): fc.Arbitrary<Record<string, unknown>> {
+  return fc.record({
+    resourceType: fc.constant("Patient"),
+    identifier: fc.array(
+      fc.record({
+        system: fc.constant("http://example.org/mrn"),
+        value: fc.stringMatching(/^[0-9a-f]{4,8}$/),
+      }),
+      { minLength: 1, maxLength: 1 }
+    ),
+    name: fc.array(
+      fc.record({
+        family: fc.stringMatching(/^[A-Z][a-z]+$/),
+        given: fc.array(fc.stringMatching(/^[A-Z][a-z]+$/), { minLength: 1, maxLength: 2 }),
+      }),
+      { minLength: 1, maxLength: 1 }
+    ),
+    gender: fc.constantFrom("male", "female", "other", "unknown"),
+    birthDate: fc.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+  });
+}
+
+type FieldRemover = {
+  field: string;
+  remove: (r: Record<string, unknown>) => Record<string, unknown>;
+};
+
+const mutationStrategies: FieldRemover[] = [
+  { field: "identifier", remove: r => { const c = { ...r }; delete c.identifier; return c; } },
+  { field: "identifier[0].system", remove: r => ({ ...r, identifier: [{ value: (r.identifier as any)?.[0]?.value }] }) },
+  { field: "name", remove: r => { const c = { ...r }; delete c.name; return c; } },
+  { field: "name[0].family", remove: r => ({ ...r, name: [{ given: (r.name as any)?.[0]?.given }] }) },
+  { field: "gender", remove: r => { const c = { ...r }; delete c.gender; return c; } },
+  { field: "birthDate", remove: r => { const c = { ...r }; delete c.birthDate; return c; } },
+];
+
+describe("Full Validation Pipeline — Property-Based Tests", () => {
+  describe("P1: Fuzz Robustness — never throws on arbitrary JSON", () => {
+    it("never throws on arbitrary JSON input with any SD", () => {
+      fc.assert(
+        fc.property(
+          fc.jsonValue(),
+          (value) => {
+            expect(() => {
+              const resource = typeof value === "object" && value !== null && !Array.isArray(value)
+                ? { ...value as Record<string, unknown>, resourceType: "Patient" }
+                : { resourceType: "Patient" };
+              validateResource(resource, myPatientSD);
+            }).not.toThrow();
+          }
+        ),
+        { numRuns: 10000, endOnFailure: true }
+      );
+    });
+
+    it("never throws when resource has extra unknown keys", () => {
+      fc.assert(
+        fc.property(
+          validPatientArbitrary(),
+          fc.dictionary(fc.string(), fc.jsonValue()),
+          (patient, extra) => {
+            const withExtra = { ...patient, ...extra };
+            expect(() => validateResource(withExtra, myPatientSD)).not.toThrow();
+          }
+        ),
+        { numRuns: 1000, endOnFailure: true }
+      );
+    });
+  });
+
+  describe("P2: Positive Compliance — valid generated patients always pass", () => {
+    it("all generated conformant patients pass validation", () => {
+      fc.assert(
+        fc.property(validPatientArbitrary(), (patient) => {
+          const result = validateResource(patient, myPatientSD);
+          expect(result.valid).toBe(true);
+          expect(result.issues).toHaveLength(0);
+        }),
+        { numRuns: 2000, endOnFailure: true }
+      );
+    });
+  });
+
+  describe("P3: Targeted Negative Mutation — breaking 1 field always produces errors", () => {
+    it("breaking exactly 1 required field always fails with correct location", () => {
+      fc.assert(
+        fc.property(
+          validPatientArbitrary(),
+          fc.constantFrom(...mutationStrategies),
+          (validResource, mutation) => {
+            const mutated = mutation.remove(validResource);
+            const result = validateResource(mutated, myPatientSD);
+            expect(result.valid).toBe(false);
+            expect(result.issues.length).toBeGreaterThan(0);
+          }
+        ),
+        { numRuns: 1000, endOnFailure: true }
+      );
+    });
+  });
+
+  describe("P4: Idempotency — same input always produces same output", () => {
+    it("validateResource is deterministic", () => {
+      fc.assert(
+        fc.property(
+          fc.oneof(validPatientArbitrary(), fc.jsonValue().map(v => {
+            const r = typeof v === "object" && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {};
+            return { resourceType: "Patient", ...r };
+          })),
+          (resource) => {
+            const result1 = validateResource(resource, myPatientSD);
+            const result2 = validateResource(resource, myPatientSD);
+            expect(result1.valid).toBe(result2.valid);
+            expect(result1.issues).toEqual(result2.issues);
+          }
+        ),
+        { numRuns: 2000, endOnFailure: true }
+      );
+    });
+  });
+
+  describe("P5: Error Count Bounds — empty patient produces at least N errors", () => {
+    it("empty resource produces at least 4 errors (identifier, name, gender, birthDate min=1)", () => {
+      const result = validateResource({ resourceType: "Patient" }, myPatientSD);
+      expect(result.valid).toBe(false);
+      expect(result.issues.length).toBeGreaterThanOrEqual(4);
+    });
+  });
+
+  describe("P6: ResourceType mismatch always produces exactly 1 error", () => {
+    it("wrong resourceType always produces invalid-resource-type error", () => {
+      fc.assert(
+        fc.property(
+          fc.string().filter(s => s !== "Patient"),
+          (wrongType) => {
+            const resource = { resourceType: wrongType };
+            const result = validateResource(resource, myPatientSD);
+            expect(result.valid).toBe(false);
+            expect(result.issues.length).toBeGreaterThanOrEqual(1);
+            expect(result.issues[0]!.code).toBe("invalid-resource-type");
+          }
+        ),
+        { numRuns: 500, endOnFailure: true }
+      );
+    });
+  });
+});

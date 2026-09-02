@@ -1,8 +1,16 @@
 import type { ResourceConfig, FhirResource } from "../fhir/types.ts";
+import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
-import { createOperationOutcome } from "./metadata.ts";
+import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
+import { validateResource } from "../fhir/validator.ts";
+import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
 
-export async function handleCreate(req: Request, config: ResourceConfig, store: ResourceStore): Promise<Response> {
+export async function handleCreate(
+  req: Request,
+  config: ResourceConfig,
+  store: ResourceStore,
+  validators?: ValidatorRegistry
+): Promise<Response> {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const resourceType = pathParts[0]!;
@@ -30,6 +38,17 @@ export async function handleCreate(req: Request, config: ResourceConfig, store: 
       "invalid",
       `Resource type in body (${body.resourceType}) does not match URL (${resourceType})`
     );
+  }
+
+  if (validators) {
+    const profileUrl = getProfileUrl(body as Record<string, unknown>);
+    const sd = validators.getValidator(resourceType, profileUrl);
+    if (sd) {
+      const validation = validateResource(body as Record<string, unknown>, sd);
+      if (!validation.valid) {
+        return createOperationOutcomeFromIssues(validation.issues, 422);
+      }
+    }
   }
 
   const resource = store.create(resourceType, body);

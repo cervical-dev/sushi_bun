@@ -21,7 +21,7 @@ describe("Patient CRUD operations", () => {
       });
 
       expect(res.status).toBe(201);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.id).toBeDefined();
       expect(body.resourceType).toBe("Patient");
       expect(body.meta?.versionId).toBe("1");
@@ -37,7 +37,7 @@ describe("Patient CRUD operations", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
     });
 
@@ -58,7 +58,7 @@ describe("Patient CRUD operations", () => {
 
       const res = await fetch(`${server.baseUrl}/Patient/${created.id}`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.id).toBe(created.id);
       expect(body.resourceType).toBe("Patient");
       expect(res.headers.get("ETag")).toBe('W/"1"');
@@ -68,7 +68,7 @@ describe("Patient CRUD operations", () => {
     it("returns 404 for non-existent patient", async () => {
       const res = await fetch(`${server.baseUrl}/Patient/non-existent`);
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
     });
   });
@@ -91,7 +91,7 @@ describe("Patient CRUD operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.meta?.versionId).toBe("2");
       expect(body.name[0].family).toBe("Updated");
     });
@@ -108,7 +108,10 @@ describe("Patient CRUD operations", () => {
         body: JSON.stringify({
           resourceType: "Patient",
           id: created.id,
-          name: [{ family: "Conflict" }],
+          name: [{ family: "Conflict", given: ["Version"] }],
+          gender: "male",
+          birthDate: "1990-01-01",
+          identifier: [{ system: "http://example.org/mrn", value: "conflict" }],
         }),
       });
 
@@ -127,7 +130,7 @@ describe("Patient CRUD operations", () => {
         body: JSON.stringify({
           resourceType: "Patient",
           id: created.id,
-          name: [{ family: "Matched" }],
+          name: [{ family: "Matched", given: ["Jane"] }],
           gender: "male",
           birthDate: "1990-01-01",
           identifier: [{ system: "http://example.org/mrn", value: "match" }],
@@ -151,7 +154,7 @@ describe("Patient CRUD operations", () => {
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
     });
 
@@ -167,12 +170,15 @@ describe("Patient CRUD operations", () => {
         body: JSON.stringify({
           resourceType: "Patient",
           id: created.id,
-          name: [{ family: "Test" }],
+          name: [{ family: "Test", given: ["IfMatch"] }],
+          gender: "female",
+          birthDate: "1990-01-01",
+          identifier: [{ system: "http://example.org/mrn", value: "ifmatch-test" }],
         }),
       });
 
       expect(res.status).toBe(400);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
     });
 
@@ -188,7 +194,7 @@ describe("Patient CRUD operations", () => {
           body: JSON.stringify({
             resourceType: "Patient",
             id: "non-existent-id",
-            name: [{ family: "Ghost" }],
+            name: [{ family: "Ghost", given: ["Nonexistent"] }],
             gender: "male",
             birthDate: "2000-01-01",
             identifier: [{ system: "http://example.org/mrn", value: "ghost" }],
@@ -196,7 +202,7 @@ describe("Patient CRUD operations", () => {
         });
 
         expect(res.status).toBe(404);
-        const body = await res.json();
+        const body = await res.json() as Record<string, any>;
         expect(body.resourceType).toBe("OperationOutcome");
       } finally {
         config.updateCreate = originalUpdateCreate;
@@ -215,7 +221,7 @@ describe("Patient CRUD operations", () => {
           body: JSON.stringify({
             resourceType: "Patient",
             id: "update-create-id",
-            name: [{ family: "Created" }],
+            name: [{ family: "Created", given: ["Alice"] }],
             gender: "female",
             birthDate: "1995-06-15",
             identifier: [{ system: "http://example.org/mrn", value: "uc1" }],
@@ -223,7 +229,7 @@ describe("Patient CRUD operations", () => {
         });
 
         expect(res.status).toBe(201);
-        const body = await res.json();
+        const body = await res.json() as Record<string, any>;
         expect(body.id).toBe("update-create-id");
         expect(body.meta?.versionId).toBe("1");
         expect(res.headers.get("Location")).toContain("Patient/update-create-id");
@@ -275,7 +281,7 @@ describe("Patient CRUD operations", () => {
 
       const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("Bundle");
       expect(body.type).toBe("history");
       expect(body.entry.length).toBe(2);
@@ -292,7 +298,7 @@ describe("Patient CRUD operations", () => {
 
       const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.entry.length).toBe(2);
     });
   });
@@ -304,7 +310,7 @@ describe("Patient CRUD operations", () => {
 
       const res = await fetch(`${server.baseUrl}/Patient/${created.id}/_history/1`);
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.meta?.versionId).toBe("1");
     });
 

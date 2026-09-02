@@ -15,7 +15,7 @@ describe("Server routing respects CapabilityStatement", () => {
   it("serves metadata at /metadata", async () => {
     const res = await fetch(`${server.baseUrl}/metadata`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("CapabilityStatement");
   });
 
@@ -27,7 +27,7 @@ describe("Server routing respects CapabilityStatement", () => {
 
     const res = await fetch(`${server.baseUrl}/Patient/${created.id}`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("Patient");
     expect(res.headers.get("ETag")).toBe(`W/"1"`);
   });
@@ -37,7 +37,7 @@ describe("Server routing respects CapabilityStatement", () => {
 
     const res = await fetch(`${server.baseUrl}/Patient?name=Jones`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("Bundle");
     expect(body.type).toBe("searchset");
   });
@@ -50,6 +50,8 @@ describe("Server routing respects CapabilityStatement", () => {
         resourceType: "Patient",
         name: [{ family: "Test", given: ["Create"] }],
         gender: "female",
+        birthDate: "2000-01-01",
+        identifier: [{ system: "http://example.org/mrn", value: "routing-create" }],
       }),
     });
     expect(res.status).toBe(201);
@@ -69,11 +71,14 @@ describe("Server routing respects CapabilityStatement", () => {
       body: JSON.stringify({
         resourceType: "Patient",
         id: created.id,
-        name: [{ family: "Updated" }],
+        name: [{ family: "Updated", given: ["Jane"] }],
+        gender: "female",
+        birthDate: "1990-01-01",
+        identifier: [{ system: "http://example.org/mrn", value: "routing-update" }],
       }),
     });
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.meta?.versionId).toBe("2");
   });
 
@@ -124,7 +129,7 @@ describe("Server routing respects CapabilityStatement", () => {
 
     const res = await fetch(`${server.baseUrl}/Observation/${obs.id}`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("Observation");
   });
 
@@ -160,7 +165,7 @@ describe("Server routing respects CapabilityStatement", () => {
   it("serves root path with information message", async () => {
     const res = await fetch(`${server.baseUrl}/`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("OperationOutcome");
   });
 });

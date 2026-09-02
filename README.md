@@ -2,9 +2,11 @@
 
 A FHIR R5 server powered by [Bun](https://bun.sh) and [FSH SUSHI](https://fshschool.org).
 
-> **Not production-ready.** This is a development and prototyping tool. It is not yet designed for production use. Use it to explore FHIR server design, test clients, or prototype APIs.
+> **Not production-ready.** This is a development and prototyping tool. Use it to explore FHIR server design, test clients, or prototype APIs.
 
 Write your FHIR server's contract in **FHIR Shorthand** (`.fsh` files). SUSHI compiles them to JSON. This server reads that JSON at startup and dynamically generates every route, handler, and search parameter — no hardcoded resource types, no static config files, no hand-written routes.
+
+Resources are validated against StructureDefinitions on create, update, and batch entry processing. Invalid resources return `422` with an OperationOutcome.
 
 **Change the FSH, restart the server, get a different API.**
 
@@ -40,9 +42,10 @@ The server starts at `http://localhost:3000`. Hit `/metadata` to see what it can
 
 1. You write `.fsh` files defining resources, interactions, search parameters, and operations
 2. `sushi build` compiles them into FHIR JSON (CapabilityStatement, StructureDefinitions, etc.)
-3. At startup, the server parses the CapabilityStatement into a `RouteConfig`
+3. At startup, the server parses the CapabilityStatement into a `RouteConfig` and loads StructureDefinitions for validation
 4. Routes are generated dynamically — only endpoints you declared exist
-5. SQLite stores resources as JSON blobs with version history
+5. SQLite stores resources as JSON blobs with soft-delete and version history
+6. On create/update, resources are validated against their StructureDefinition
 
 ## Example FSH
 
@@ -88,6 +91,7 @@ Once running, the server supports standard FHIR R5 REST interactions:
 | `PUT` | `/:type/:id` | Update |
 | `DELETE` | `/:type/:id` | Delete |
 | `GET` | `/:type/:id/_history` | Version history |
+| `GET` | `/:type/:id/_history/:vid` | Read specific version |
 | `POST` | `/` | Batch / Transaction |
 | `POST` | `/:type/$everything` | Operation (if declared) |
 | `POST` | `/:type/$validate` | Operation (if declared) |
@@ -134,58 +138,73 @@ curl -X POST http://localhost:3000/ \
   }'
 ```
 
+Transactions execute atomically (all-or-nothing). Batches execute entries independently. Both support `urn:uuid:` temporary ID resolution across entries. Each entry is validated against its StructureDefinition.
+
+## Validation
+
+Resources are validated against StructureDefinitions on create, update, and batch/transaction entry processing. The `$validate` operation provides explicit validation.
+
+The validator checks:
+
+- **Primitive types** — format validation for all 17 FHIR primitive types (string, integer, date, dateTime, uri, code, etc.)
+- **Cardinality** — min/max constraints on all elements
+- **Choice types** — ensures only one `[x]` variant is present
+- **Fixed values** — elements with fixed values must match exactly
+- **MustSupport** — required mustSupport elements must be present
+- **FHIRPath constraints** — evaluates `constraint[].expression` on elements
+- **Extensions** — validates structure (required `url`, absolute URLs, nesting depth)
+- **Slicing** — discriminator-based slice validation, closed/open rules, per-slice cardinality
+- **Terminology bindings** — code validation against ValueSet bindings (required/extensible/preferred)
+
+```bash
+# Explicit validation via $validate
+curl -X POST http://localhost:3000/Patient/$validate \
+  -H "Content-Type: application/fhir+json" \
+  -d '{"resourceType":"Patient","name":[{"family":"Smith"}]}'
+```
+
+
 ## Testing
 
 ```bash
 bun test
 ```
 
-The test suite covers:
-
-- **Unit tests**: CapabilityStatement parsing, route generation, search parameter handling, SQLite store operations
-- **Integration tests**: Full HTTP request/response cycles against a running server, verifying that the server only exposes routes declared in the CapabilityStatement
-
-```
-├── Unit
-│   ├── capability.test.ts    # Parse CapabilityStatement → config
-│   ├── store.test.ts         # SQLite CRUD + versioning
-│   ├── generator.test.ts     # Config → route map
-│   └── params.test.ts        # Search parameter parsing
-└── Integration
-    ├── routing.test.ts       # CapabilityStatement drives routing
-    ├── crud.test.ts          # Create, read, update, delete
-    ├── search.test.ts        # Search with filters + pagination
-    ├── batch.test.ts         # Batch + transaction bundles
-    ├── metadata.test.ts      # CapabilityStatement endpoint
-    └── operations.test.ts    # $everything, $validate
-```
-
 ## Project Structure
 
 ```
 sushi_bun/
-├── sushi-config.yaml          # Sushi config (FSHOnly: true, R5)
+├── sushi-config.yaml                # Sushi config (FSHOnly: true, R5)
 ├── input/fsh/
-│   ├── capability.fsh         # Server contract (resources, interactions, ops)
+│   ├── capability.fsh               # Server contract (resources, interactions, ops)
 │   └── profiles/
-│       └── patient.fsh        # Profile definitions
-├── fsh-generated/resources/   # Sushi output (gitignored)
+│       └── patient.fsh              # MyPatient profile (strict validation)
+├── fsh-generated/resources/         # Sushi output (gitignored)
 ├── src/
-│   ├── index.ts               # Entry point
-│   ├── server.ts              # Bun.serve() with dynamic routes
-│   ├── db.ts                  # SQLite setup
+│   ├── index.ts                     # Entry point
+│   ├── server.ts                    # Bun.serve() with dynamic routes
+│   ├── db.ts                        # SQLite setup
 │   ├── fhir/
-│   │   ├── types.ts           # Minimal FHIR interfaces
-│   │   └── capability.ts      # CapabilityStatement parser
+│   │   ├── types.ts                 # FHIR type definitions
+│   │   ├── capability.ts            # CapabilityStatement parser
+│   │   ├── validator.ts             # Core validation engine
+│   │   ├── validator-loader.ts      # StructureDefinition loader + registry
+│   │   ├── bundle-validator.ts      # Bundle-specific validation
+│   │   ├── extension/               # Extension structure validation
+│   │   ├── fhirpath/                # FHIRPath lexer, parser, evaluator
+│   │   ├── schema/                  # StructureDefinition merging
+│   │   ├── slicing/                 # Element slicing validation
+│   │   ├── terminology/             # ValueSet/CodeSystem binding checks
+│   │   └── type-checker/            # Primitive, cardinality, choice type checks
 │   ├── router/
-│   │   ├── generator.ts       # RouteConfig → Bun routes
-│   │   └── params.ts          # FHIR search param parsing
-│   ├── handlers/              # FHIR interaction handlers
+│   │   ├── generator.ts             # RouteConfig → Bun routes
+│   │   └── params.ts                # FHIR search param parsing
+│   ├── handlers/                    # FHIR interaction handlers
 │   └── store/
-│       ├── types.ts           # ResourceStore, StorageProvider interfaces
-│       ├── resource-store.ts  # SQLite CRUD + versioning
-│       └── sqlite-provider.ts # Default SQLite provider
-└── tests/                     # Bun test suite
+│       ├── types.ts                 # ResourceStore, StorageProvider interfaces
+│       ├── resource-store.ts        # SQLite CRUD + versioning
+│       └── sqlite-provider.ts       # Default SQLite provider
+└── tests/                           # Bun test suite
 ```
 
 ## Dependencies
@@ -194,6 +213,7 @@ sushi_bun/
 
 - `bun` — runtime + HTTP server + SQLite
 - `fsh-sushi` — dev only, compiles FSH to JSON
+- `fast-check` — dev only, property-based testing
 - `@types/bun` — dev only, TypeScript types
 
 ## Configuration
@@ -248,14 +268,26 @@ Each handler receives the request and the resource config. See `src/handlers/` f
 Implement the `ResourceStore` interface for your backend and a `FilterTranslator` to convert FHIR search parameters to your query format.
 
 ```typescript
+import type { ResourceStore, StorageProvider } from "./src/store/types.ts";
+
 const store: ResourceStore = {
   create(resourceType, resource) { /* ... */ },
   read(resourceType, id) { /* ... */ },
-  search(resourceType, filters, offset, limit) { /* ... */ },
-  // ... other methods
+  readVersion(resourceType, id, versionId) { /* ... */ },
+  update(resourceType, id, resource, expectedVersion?) { /* ... */ },
+  softDelete(resourceType, id) { /* ... */ },
+  listVersions(resourceType, id) { /* ... */ },
+  search(resourceType, filters, offset?, limit?) { /* ... */ },
+  count(resourceType, filters) { /* ... */ },
+  transaction<T>(fn) { return fn(); },
 };
 
-const handlers = defaultHandlers(store, myFilterTranslator);
+const provider: StorageProvider = {
+  createStore() { return store; },
+  translateFilters(filters, searchParams) { /* ... */ },
+};
+
+const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
 const { server } = await createServer({ capabilityPath: "capability.json", handlers });
 ```
 

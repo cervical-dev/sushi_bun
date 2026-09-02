@@ -10,7 +10,7 @@ describe("buildRoutes", () => {
 
   async function makeRoutes(config: RouteConfig) {
     const { store } = createTestStore();
-    const handlers = await defaultHandlers(store, provider.translateFilters);
+    const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
     return buildRoutes(config, {}, handlers);
   }
 

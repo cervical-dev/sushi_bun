@@ -22,7 +22,7 @@ describe("Operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("Bundle");
       expect(body.type).toBe("searchset");
       expect(body.total).toBeGreaterThanOrEqual(2);
@@ -38,7 +38,7 @@ describe("Operations", () => {
       });
 
       expect(res.status).toBe(200);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
       expect(body.issue[0].severity).toBe("information");
     });
@@ -51,7 +51,7 @@ describe("Operations", () => {
       });
 
       expect(res.status).toBe(404);
-      const body = await res.json();
+      const body = await res.json() as Record<string, any>;
       expect(body.resourceType).toBe("OperationOutcome");
     });
   });

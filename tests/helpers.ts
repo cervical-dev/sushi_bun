@@ -3,9 +3,11 @@ import { parseCapabilityStatement } from "../src/fhir/capability.ts";
 import { createResourceStore } from "../src/store/resource-store.ts";
 import { sqliteProvider } from "../src/store/sqlite-provider.ts";
 import { defaultHandlers } from "../src/handlers/default.ts";
+import { loadValidators } from "../src/fhir/validator-loader.ts";
 import { buildRoutes } from "../src/router/generator.ts";
 import type { RouteConfig } from "../src/fhir/types.ts";
 import type { ResourceStore, StorageProvider } from "../src/store/types.ts";
+import type { ValidatorRegistry } from "../src/fhir/validator-loader.ts";
 
 export interface TestServer {
   baseUrl: string;
@@ -14,6 +16,7 @@ export interface TestServer {
   server: ReturnType<typeof Bun.serve>;
   provider: StorageProvider;
   db: Database;
+  validators: ValidatorRegistry;
   stop: () => void;
 }
 
@@ -52,10 +55,16 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
   const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
   const config = parseCapabilityStatement(capabilityJson as any);
 
+  const capabilityDir = capabilityPath.includes("/")
+    ? capabilityPath.substring(0, capabilityPath.lastIndexOf("/"))
+    : "fsh-generated/resources";
+  const sdDir = capabilityDir || "fsh-generated/resources";
+  const validators = await loadValidators(sdDir);
+
   const db = createTestDb();
   const store = createResourceStore(db);
   const provider = sqliteProvider();
-  const handlers = await defaultHandlers(store, provider.translateFilters);
+  const handlers = await defaultHandlers(store, validators, provider.translateFilters);
   const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({
@@ -80,6 +89,7 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
     server,
     provider,
     db,
+    validators,
     stop: () => {
       server.stop();
       db.close();

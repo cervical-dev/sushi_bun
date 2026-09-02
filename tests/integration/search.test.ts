@@ -19,7 +19,7 @@ describe("Search operations", () => {
   it("returns all patients with no filter", async () => {
     const res = await fetch(`${server.baseUrl}/Patient`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("Bundle");
     expect(body.type).toBe("searchset");
     expect(body.total).toBe(3);
@@ -29,7 +29,7 @@ describe("Search operations", () => {
   it("filters by name", async () => {
     const res = await fetch(`${server.baseUrl}/Patient?name=Alpha`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBe(1);
     expect(body.entry[0].resource.name[0].family).toBe("Alpha");
   });
@@ -37,14 +37,14 @@ describe("Search operations", () => {
   it("filters by gender", async () => {
     const res = await fetch(`${server.baseUrl}/Patient?gender=male`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBe(2);
   });
 
   it("returns pagination links", async () => {
     const res = await fetch(`${server.baseUrl}/Patient?_count=2`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBe(3);
     expect(body.entry.length).toBe(2);
     expect(body.link).toBeDefined();
@@ -55,7 +55,7 @@ describe("Search operations", () => {
   it("paginates with offset", async () => {
     const res = await fetch(`${server.baseUrl}/Patient?_count=2&_offset=2`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.entry.length).toBe(1);
   });
 
@@ -71,7 +71,7 @@ describe("Search operations", () => {
 
     const res = await fetch(`${server.baseUrl}/Observation?patient=Patient/${patient.id}`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBe(1);
   });
 
@@ -84,7 +84,7 @@ describe("Search operations", () => {
 
     const res = await fetch(`${server.baseUrl}/Observation?code=8867-4`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBeGreaterThanOrEqual(1);
   });
 
@@ -97,14 +97,14 @@ describe("Search operations", () => {
 
     const res = await fetch(`${server.baseUrl}/Observation?status=final`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBeGreaterThanOrEqual(1);
   });
 
   it("returns empty bundle for no matches", async () => {
     const res = await fetch(`${server.baseUrl}/Patient?name=NonExistent`);
     expect(res.status).toBe(200);
-    const body = await res.json();
+    const body = await res.json() as Record<string, any>;
     expect(body.total).toBe(0);
     expect(body.entry.length).toBe(0);
   });

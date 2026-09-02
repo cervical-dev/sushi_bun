@@ -1,4 +1,5 @@
 import type { RouteConfig, ResourceConfig } from "../fhir/types.ts";
+import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 
 export type RouteHandler = (req: Request) => Response | Promise<Response>;
 
@@ -10,6 +11,7 @@ export interface HandlerProvider {
   handleSearch?: (req: Request, config: ResourceConfig) => Response;
   handleHistory?: (req: Request, config: ResourceConfig) => Response;
   handleBatch?: (req: Request, config: RouteConfig) => Promise<Response>;
-  handleOperation?: (req: Request, operationName: string, config: ResourceConfig) => Response;
+  handleOperation?: (req: Request, operationName: string, config: ResourceConfig) => Response | Promise<Response>;
   handleMetadata?: (req: Request, capabilityJson: Record<string, unknown>) => Response;
+  validators?: ValidatorRegistry;
 }

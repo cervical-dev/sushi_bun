@@ -21,6 +21,8 @@ export interface OperationOutcomeIssue {
   code: string;
   diagnostics?: string;
   details?: { coding?: { system: string; code: string }[] };
+  location?: string[];
+  expression?: string[];
 }
 
 export interface Bundle extends FhirResource {
@@ -83,4 +85,86 @@ export interface SearchFilter {
 export interface PaginatedSearchResult {
   bundle: Bundle;
   total: number;
+}
+
+export interface ValidationIssue {
+  severity: "error" | "warning" | "information";
+  code: string;
+  diagnostics: string;
+  location?: string;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  issues: ValidationIssue[];
+}
+
+export interface ElementBinding {
+  strength: "required" | "extensible" | "preferred" | "example";
+  valueSet?: string;
+}
+
+export interface ElementConstraint {
+  key: string;
+  severity: "error" | "warning";
+  human?: string;
+  expression: string;
+}
+
+export interface ElementSlicingDiscriminator {
+  type: "value" | "exists" | "pattern" | "type" | "profile";
+  path: string;
+}
+
+export interface ElementSlicing {
+  discriminator: ElementSlicingDiscriminator[];
+  rules: "closed" | "open" | "openAtEnd";
+  description?: string;
+}
+
+export interface StructureDefinitionElement {
+  id: string;
+  path: string;
+  min?: number;
+  max?: string;
+  mustSupport?: boolean;
+  type?: Array<{ code: string; targetProfile?: string[] }>;
+  fixedCode?: string;
+  fixedBoolean?: boolean;
+  fixedString?: string;
+  fixedUri?: string;
+  fixedId?: string;
+  patternCodeableConcept?: unknown;
+  binding?: ElementBinding;
+  constraint?: ElementConstraint[];
+  slicing?: ElementSlicing;
+  sliceName?: string;
+  definition?: string;
+  comment?: string;
+  short?: string;
+}
+
+export interface StructureDefinition {
+  resourceType: "StructureDefinition";
+  id: string;
+  url: string;
+  type: string;
+  baseDefinition?: string;
+  differential?: {
+    element: StructureDefinitionElement[];
+  };
+  snapshot?: {
+    element: StructureDefinitionElement[];
+  };
+}
+
+export function getProfileUrl(resource: Record<string, unknown>): string | undefined {
+  const meta = resource.meta;
+  if (meta && typeof meta === "object") {
+    const profile = (meta as Record<string, unknown>).profile;
+    if (Array.isArray(profile) && profile.length > 0) {
+      return profile[0] as string;
+    }
+  }
+  return undefined;
 }

@@ -1,6 +1,7 @@
 import { parseCapabilityStatement } from "./fhir/capability.ts";
 import { buildRoutes } from "./router/generator.ts";
 import { defaultHandlers } from "./handlers/default.ts";
+import { loadValidators } from "./fhir/validator-loader.ts";
 import type { RouteConfig } from "./fhir/types.ts";
 import type { HandlerProvider } from "./handlers/types.ts";
 
@@ -15,7 +16,13 @@ export async function createServer(serverConfig: ServerConfig) {
   const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
   const config: RouteConfig = parseCapabilityStatement(capabilityJson as any);
 
-  const handlers = serverConfig.handlers ?? await defaultHandlers();
+  const capabilityDir = serverConfig.capabilityPath.includes("/")
+    ? serverConfig.capabilityPath.substring(0, serverConfig.capabilityPath.lastIndexOf("/"))
+    : "fsh-generated/resources";
+  const sdDir = capabilityDir || "fsh-generated/resources";
+  const validators = await loadValidators(sdDir);
+
+  const handlers = serverConfig.handlers ?? await defaultHandlers(undefined, validators);
   const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({
