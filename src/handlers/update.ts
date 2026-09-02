@@ -1,5 +1,5 @@
 import type { ResourceConfig, FhirResource } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
+import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
 
 export async function handleUpdate(req: Request, config: ResourceConfig, store: ResourceStore): Promise<Response> {

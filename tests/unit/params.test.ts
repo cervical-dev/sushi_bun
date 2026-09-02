@@ -1,5 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { parseSearchParams, filtersToSqlFilters } from "../../src/router/params.ts";
+import { parseSearchParams } from "../../src/router/params.ts";
+import { sqliteFilterTranslator } from "../../src/store/sqlite-provider.ts";
 
 describe("parseSearchParams", () => {
   const searchParams = new Map([
@@ -48,7 +49,7 @@ describe("parseSearchParams", () => {
   });
 });
 
-describe("filtersToSqlFilters", () => {
+describe("sqliteFilterTranslator", () => {
   const searchParams = new Map([
     ["name", { name: "name", type: "string" }],
     ["gender", { name: "gender", type: "token" }],
@@ -57,7 +58,7 @@ describe("filtersToSqlFilters", () => {
 
   it("converts string filter to sql", () => {
     const filters = parseSearchParams("name=Smith", searchParams);
-    const sqlFilters = filtersToSqlFilters(filters, searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
     expect(sqlFilters.length).toBe(1);
     expect(sqlFilters[0]!.column).toBe("json:$.name");
     expect(sqlFilters[0]!.op).toBe("LIKE");
@@ -65,14 +66,14 @@ describe("filtersToSqlFilters", () => {
 
   it("converts token filter to sql", () => {
     const filters = parseSearchParams("gender=male", searchParams);
-    const sqlFilters = filtersToSqlFilters(filters, searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
     expect(sqlFilters.length).toBe(1);
     expect(sqlFilters[0]!.column).toBe("json:$.gender");
   });
 
   it("converts date filter with prefix to sql", () => {
     const filters = parseSearchParams("birthdate=ge2000-01-01", searchParams);
-    const sqlFilters = filtersToSqlFilters(filters, searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
     expect(sqlFilters.length).toBe(1);
     expect(sqlFilters[0]!.op).toBe(">=");
     expect(sqlFilters[0]!.value).toBe("2000-01-01");

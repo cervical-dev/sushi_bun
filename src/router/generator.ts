@@ -1,16 +1,6 @@
 import type { RouteConfig } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
+import type { RouteHandler, HandlerProvider } from "../handlers/types.ts";
 import { handleMetadata } from "../handlers/metadata.ts";
-import { handleRead } from "../handlers/read.ts";
-import { handleCreate } from "../handlers/create.ts";
-import { handleUpdate } from "../handlers/update.ts";
-import { handleDelete } from "../handlers/delete.ts";
-import { handleSearch } from "../handlers/search.ts";
-import { handleHistory } from "../handlers/history.ts";
-import { handleBatch } from "../handlers/batch.ts";
-import { handleOperation } from "../handlers/operations.ts";
-
-type RouteHandler = (req: Request) => Response | Promise<Response>;
 
 interface MethodHandlers {
   GET?: RouteHandler;
@@ -24,12 +14,12 @@ type GeneratedRoutes = Record<string, MethodHandlers | RouteHandler>;
 
 export function buildRoutes(
   config: RouteConfig,
-  store: ResourceStore,
-  capabilityJson: Record<string, unknown>
+  capabilityJson: Record<string, unknown>,
+  handlers: HandlerProvider
 ): GeneratedRoutes {
   const routes: GeneratedRoutes = {};
 
-  routes["/metadata"] = (req) => handleMetadata(req, capabilityJson);
+  routes["/metadata"] = (req) => (handlers.handleMetadata ?? handleMetadata)(req, capabilityJson);
 
   routes["/"] = {
     GET: (_req) => {
@@ -41,18 +31,18 @@ export function buildRoutes(
         { status: 200, headers: { "Content-Type": "application/fhir+json" } }
       );
     },
-    POST: (req) => handleBatch(req, config, store),
+    POST: (req) => handlers.handleBatch!(req, config),
   };
 
   for (const [resourceType, resourceConfig] of config.resources) {
     const typeHandlers: MethodHandlers = {};
 
     if (resourceConfig.interactions.has("search-type")) {
-      typeHandlers.GET = (req) => handleSearch(req, resourceConfig, store);
+      typeHandlers.GET = (req) => handlers.handleSearch!(req, resourceConfig);
     }
 
     if (resourceConfig.interactions.has("create")) {
-      typeHandlers.POST = (req) => handleCreate(req, resourceConfig, store);
+      typeHandlers.POST = (req) => handlers.handleCreate!(req, resourceConfig);
     }
 
     if (Object.keys(typeHandlers).length > 0) {
@@ -62,15 +52,15 @@ export function buildRoutes(
     const instanceHandlers: MethodHandlers = {};
 
     if (resourceConfig.interactions.has("read")) {
-      instanceHandlers.GET = (req) => handleRead(req, resourceConfig, store);
+      instanceHandlers.GET = (req) => handlers.handleRead!(req, resourceConfig);
     }
 
     if (resourceConfig.interactions.has("update")) {
-      instanceHandlers.PUT = (req) => handleUpdate(req, resourceConfig, store);
+      instanceHandlers.PUT = (req) => handlers.handleUpdate!(req, resourceConfig);
     }
 
     if (resourceConfig.interactions.has("delete")) {
-      instanceHandlers.DELETE = (req) => handleDelete(req, resourceConfig, store);
+      instanceHandlers.DELETE = (req) => handlers.handleDelete!(req, resourceConfig);
     }
 
     if (Object.keys(instanceHandlers).length > 0) {
@@ -79,19 +69,19 @@ export function buildRoutes(
 
     if (resourceConfig.interactions.has("history-instance") || resourceConfig.interactions.has("read")) {
       routes[`/${resourceType}/:id/_history/:vid`] = {
-        GET: (req) => handleRead(req, resourceConfig, store),
+        GET: (req) => handlers.handleRead!(req, resourceConfig),
       };
     }
 
     if (resourceConfig.interactions.has("history-instance")) {
       routes[`/${resourceType}/:id/_history`] = {
-        GET: (req) => handleHistory(req, resourceConfig, store),
+        GET: (req) => handlers.handleHistory!(req, resourceConfig),
       };
     }
 
     for (const op of resourceConfig.operations) {
       routes[`/${resourceType}/$${op.name}`] = {
-        POST: (req) => handleOperation(req, op.name, resourceConfig, store),
+        POST: (req) => handlers.handleOperation!(req, op.name, resourceConfig),
       };
     }
   }

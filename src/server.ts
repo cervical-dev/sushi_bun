@@ -1,13 +1,13 @@
 import { parseCapabilityStatement } from "./fhir/capability.ts";
-import { createDatabase } from "./db.ts";
-import { createResourceStore } from "./store/resource-store.ts";
 import { buildRoutes } from "./router/generator.ts";
+import { defaultHandlers } from "./handlers/default.ts";
 import type { RouteConfig } from "./fhir/types.ts";
+import type { HandlerProvider } from "./handlers/types.ts";
 
 export interface ServerConfig {
   port?: number;
-  dbPath?: string;
   capabilityPath: string;
+  handlers?: HandlerProvider;
 }
 
 export async function createServer(serverConfig: ServerConfig) {
@@ -15,9 +15,8 @@ export async function createServer(serverConfig: ServerConfig) {
   const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
   const config: RouteConfig = parseCapabilityStatement(capabilityJson as any);
 
-  const db = createDatabase(serverConfig.dbPath);
-  const store = createResourceStore(db);
-  const routes = buildRoutes(config, store, capabilityJson);
+  const handlers = serverConfig.handlers ?? await defaultHandlers();
+  const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({
     port: serverConfig.port ?? 3000,
@@ -80,5 +79,5 @@ export async function createServer(serverConfig: ServerConfig) {
     },
   });
 
-  return { server, config, store, db };
+  return { server, config };
 }

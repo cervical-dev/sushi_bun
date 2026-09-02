@@ -1,5 +1,5 @@
 import type { RouteConfig, Bundle, BundleEntry, FhirResource } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
+import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
 
 interface EntryResult {

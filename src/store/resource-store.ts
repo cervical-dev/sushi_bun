@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite";
 import type { FhirResource } from "../fhir/types.ts";
+import type { ResourceStore, VersionRecord, SqlFilter } from "./types.ts";
 import { randomUUID } from "crypto";
 
-export interface ResourceRecord {
+interface ResourceRecord {
   id: string;
   resource_type: string;
   version_id: number;
@@ -11,47 +12,12 @@ export interface ResourceRecord {
   data: string;
 }
 
-export interface VersionRecord {
-  version_id: number;
-  last_updated: string;
-  data: string;
-}
-
-export interface ResourceStore {
-  create(resourceType: string, resource: FhirResource): FhirResource;
-  read(resourceType: string, id: string): FhirResource | null;
-  readVersion(resourceType: string, id: string, versionId: number): FhirResource | null;
-  update(resourceType: string, id: string, resource: FhirResource, expectedVersion?: number): FhirResource;
-  softDelete(resourceType: string, id: string): boolean;
-  listVersions(resourceType: string, id: string): VersionRecord[];
-  search(resourceType: string, filters: Array<{ column: string; op: string; value: string }>, offset?: number, limit?: number): FhirResource[];
-  count(resourceType: string, filters: Array<{ column: string; op: string; value: string }>): number;
-  transaction<T>(fn: () => T): T;
-}
-
 const ALLOWED_OPS = new Set(["=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE"]);
 
 function validateOp(op: string): void {
   if (!ALLOWED_OPS.has(op)) {
     throw new Error(`Invalid SQL operator: ${op}`);
   }
-}
-
-const JSON_PATHS: Record<string, string> = {
-  name: "$.name",
-  family: "$.name",
-  given: "$.name",
-  gender: "$.gender",
-  birthdate: "$.birthDate",
-  identifier: "$.identifier",
-  patient: "$.subject.reference",
-  subject: "$.subject.reference",
-  code: "$.code",
-  status: "$.status",
-};
-
-function getJsonPath(paramName: string): string {
-  return JSON_PATHS[paramName] ?? `$.${paramName}`;
 }
 
 export function createResourceStore(db: Database): ResourceStore {
@@ -104,7 +70,7 @@ export function createResourceStore(db: Database): ResourceStore {
 
   function buildWhereClause(
     resourceType: string,
-    filters: Array<{ column: string; op: string; value: string }>
+    filters: SqlFilter[]
   ): { clause: string; params: Record<string, string> } {
     let clause = `resource_type = $resource_type AND is_deleted = 0`;
     const params: Record<string, string> = { $resource_type: resourceType };
@@ -222,8 +188,9 @@ export function createResourceStore(db: Database): ResourceStore {
       return readAllVersionsStmt.all({ $id: id, $resource_type: resourceType }) as VersionRecord[];
     },
 
-    search(resourceType: string, filters: Array<{ column: string; op: string; value: string }>, offset = 0, limit = 20): FhirResource[] {
-      const { clause, params } = buildWhereClause(resourceType, filters);
+    search(resourceType: string, filters: unknown, offset = 0, limit = 20): FhirResource[] {
+      const sqlFilters = filters as SqlFilter[];
+      const { clause, params } = buildWhereClause(resourceType, sqlFilters);
       const query = `SELECT * FROM resources WHERE ${clause} ORDER BY last_updated DESC LIMIT $limit OFFSET $offset`;
 
       const stmt = db.prepare(query);
@@ -231,8 +198,9 @@ export function createResourceStore(db: Database): ResourceStore {
       return records.map(toResource);
     },
 
-    count(resourceType: string, filters: Array<{ column: string; op: string; value: string }>): number {
-      const { clause, params } = buildWhereClause(resourceType, filters);
+    count(resourceType: string, filters: unknown): number {
+      const sqlFilters = filters as SqlFilter[];
+      const { clause, params } = buildWhereClause(resourceType, sqlFilters);
       const query = `SELECT COUNT(*) as cnt FROM resources WHERE ${clause}`;
 
       const stmt = db.prepare(query);

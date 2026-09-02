@@ -1,5 +1,5 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
+import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
 
 export function handleHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {

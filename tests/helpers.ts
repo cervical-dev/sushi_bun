@@ -1,14 +1,18 @@
 import { Database } from "bun:sqlite";
 import { parseCapabilityStatement } from "../src/fhir/capability.ts";
-import { createResourceStore, type ResourceStore } from "../src/store/resource-store.ts";
+import { createResourceStore } from "../src/store/resource-store.ts";
+import { sqliteProvider } from "../src/store/sqlite-provider.ts";
+import { defaultHandlers } from "../src/handlers/default.ts";
 import { buildRoutes } from "../src/router/generator.ts";
 import type { RouteConfig } from "../src/fhir/types.ts";
+import type { ResourceStore, StorageProvider } from "../src/store/types.ts";
 
 export interface TestServer {
   baseUrl: string;
   store: ResourceStore;
   config: RouteConfig;
   server: ReturnType<typeof Bun.serve>;
+  provider: StorageProvider;
   db: Database;
   stop: () => void;
 }
@@ -50,7 +54,9 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
 
   const db = createTestDb();
   const store = createResourceStore(db);
-  const routes = buildRoutes(config, store, capabilityJson);
+  const provider = sqliteProvider();
+  const handlers = await defaultHandlers(store, provider.translateFilters);
+  const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({
     port: 0,
@@ -72,6 +78,7 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
     store,
     config,
     server,
+    provider,
     db,
     stop: () => {
       server.stop();

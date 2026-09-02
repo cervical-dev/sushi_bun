@@ -179,10 +179,12 @@ sushi_bun/
 │   │   └── capability.ts      # CapabilityStatement parser
 │   ├── router/
 │   │   ├── generator.ts       # RouteConfig → Bun routes
-│   │   └── params.ts          # Search param → SQL filters
+│   │   └── params.ts          # FHIR search param parsing
 │   ├── handlers/              # FHIR interaction handlers
 │   └── store/
-│       └── resource-store.ts  # SQLite CRUD + versioning
+│       ├── types.ts           # ResourceStore, StorageProvider interfaces
+│       ├── resource-store.ts  # SQLite CRUD + versioning
+│       └── sqlite-provider.ts # Default SQLite provider
 └── tests/                     # Bun test suite
 ```
 
@@ -217,8 +219,47 @@ sushi_bun/
 ### Add a new search parameter
 
 1. Add a `searchParam` block to the relevant resource in `capability.fsh`
-2. Add the JSON path mapping in `src/router/params.ts` (`getSqlForParam`)
+2. Add the JSON path mapping in `src/store/sqlite-provider.ts` (`getSqlForParam`)
 3. Rebuild and restart
+
+### Bring your own handlers
+
+Override any FHIR interaction by passing a `handlers` object to `createServer`. Only override what you need — the rest use the built-in defaults.
+
+```typescript
+import { defaultHandlers } from "./src/handlers/default.ts";
+
+const baseHandlers = await defaultHandlers(); // default SQLite store
+const { server } = await createServer({
+  capabilityPath: "capability.json",
+  handlers: {
+    ...baseHandlers,
+    handleSearch(req, config) {
+      // custom search logic — store is already bound
+    },
+  },
+});
+```
+
+Each handler receives the request and the resource config. See `src/handlers/` for the default implementations.
+
+### Bring your own storage
+
+Implement the `ResourceStore` interface for your backend and a `FilterTranslator` to convert FHIR search parameters to your query format.
+
+```typescript
+const store: ResourceStore = {
+  create(resourceType, resource) { /* ... */ },
+  read(resourceType, id) { /* ... */ },
+  search(resourceType, filters, offset, limit) { /* ... */ },
+  // ... other methods
+};
+
+const handlers = defaultHandlers(store, myFilterTranslator);
+const { server } = await createServer({ capabilityPath: "capability.json", handlers });
+```
+
+See `src/store/sqlite-provider.ts` for the reference implementation.
 
 ## License
 

@@ -1,26 +1,30 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { createTestStore } from "../helpers.ts";
 import { buildRoutes } from "../../src/router/generator.ts";
+import { sqliteProvider } from "../../src/store/sqlite-provider.ts";
+import { defaultHandlers } from "../../src/handlers/default.ts";
 import type { RouteConfig } from "../../src/fhir/types.ts";
 
 describe("buildRoutes", () => {
-  let store: ReturnType<typeof createTestStore>["store"];
+  const provider = sqliteProvider();
 
-  beforeEach(() => {
-    store = createTestStore().store;
-  });
+  async function makeRoutes(config: RouteConfig) {
+    const { store } = createTestStore();
+    const handlers = await defaultHandlers(store, provider.translateFilters);
+    return buildRoutes(config, {}, handlers);
+  }
 
-  it("generates metadata route", () => {
+  it("generates metadata route", async () => {
     const config: RouteConfig = {
       resources: new Map(),
       systemInteractions: new Set(),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
     expect(routes["/metadata"]).toBeDefined();
   });
 
-  it("generates type-level routes for supported interactions", () => {
+  it("generates type-level routes for supported interactions", async () => {
     const config: RouteConfig = {
       resources: new Map([
         [
@@ -43,7 +47,7 @@ describe("buildRoutes", () => {
       systemInteractions: new Set(),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
 
     expect(routes["/Patient"]).toBeDefined();
     expect(routes["/Patient/:id"]).toBeDefined();
@@ -60,7 +64,7 @@ describe("buildRoutes", () => {
     expect(instanceHandlers.DELETE).toBeDefined();
   });
 
-  it("only generates routes for interactions declared in capability", () => {
+  it("only generates routes for interactions declared in capability", async () => {
     const config: RouteConfig = {
       resources: new Map([
         [
@@ -83,14 +87,14 @@ describe("buildRoutes", () => {
       systemInteractions: new Set(),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
 
     expect(routes["/Observation"]).toBeDefined();
     expect(routes["/Observation/:id"]).toBeDefined();
     expect(routes["/Observation/:id/_history"]).toBeUndefined();
   });
 
-  it("does not generate routes for unsupported resource types", () => {
+  it("does not generate routes for unsupported resource types", async () => {
     const config: RouteConfig = {
       resources: new Map([
         [
@@ -113,22 +117,22 @@ describe("buildRoutes", () => {
       systemInteractions: new Set(),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
     expect(routes["/Observation"]).toBeUndefined();
     expect(routes["/Observation/:id"]).toBeUndefined();
   });
 
-  it("generates batch route when system interactions include batch", () => {
+  it("generates batch route when system interactions include batch", async () => {
     const config: RouteConfig = {
       resources: new Map(),
       systemInteractions: new Set(["batch", "transaction"]),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
     expect(routes["/"]).toBeDefined();
   });
 
-  it("generates operation routes from capability", () => {
+  it("generates operation routes from capability", async () => {
     const config: RouteConfig = {
       resources: new Map([
         [
@@ -151,7 +155,7 @@ describe("buildRoutes", () => {
       systemInteractions: new Set(),
     };
 
-    const routes = buildRoutes(config, store, {});
+    const routes = await makeRoutes(config);
     expect(routes["/Patient/$everything"]).toBeDefined();
     const opHandlers = routes["/Patient/$everything"] as any;
     expect(opHandlers.POST).toBeDefined();

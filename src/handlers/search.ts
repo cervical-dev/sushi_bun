@@ -1,8 +1,13 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
-import { parseSearchParams, filtersToSqlFilters } from "../router/params.ts";
+import type { ResourceStore, FilterTranslator, SqlFilter } from "../store/types.ts";
+import { parseSearchParams } from "../router/params.ts";
 
-export function handleSearch(req: Request, config: ResourceConfig, store: ResourceStore): Response {
+export function handleSearch(
+  req: Request,
+  config: ResourceConfig,
+  store: ResourceStore,
+  translateFilters: FilterTranslator
+): Response {
   const url = new URL(req.url);
   const pathParts = url.pathname.split("/").filter(Boolean);
   const resourceType = pathParts[0]!;
@@ -13,10 +18,10 @@ export function handleSearch(req: Request, config: ResourceConfig, store: Resour
   const offset = Math.max(offsetParam ? (parseInt(offsetParam, 10) || 0) : 0, 0);
 
   const searchFilters = parseSearchParams(url.searchParams.toString(), config.searchParams);
-  const sqlFilters = filtersToSqlFilters(searchFilters, config.searchParams);
+  const filters = translateFilters(searchFilters, config.searchParams) as SqlFilter[];
 
-  const total = store.count(resourceType, sqlFilters);
-  const resources = store.search(resourceType, sqlFilters, offset, count);
+  const total = store.count(resourceType, filters);
+  const resources = store.search(resourceType, filters, offset, count);
 
   const entries: BundleEntry[] = resources.map((resource) => ({
     fullUrl: `${resourceType}/${resource.id}`,

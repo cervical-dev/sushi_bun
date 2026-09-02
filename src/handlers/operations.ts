@@ -1,5 +1,5 @@
 import type { ResourceConfig } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/resource-store.ts";
+import type { ResourceStore, SqlFilter } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
 
 export function handleOperation(
@@ -28,7 +28,7 @@ export function handleOperation(
 }
 
 function handleEverything(resourceType: string, store: ResourceStore): Response {
-  const resources = store.search(resourceType, []);
+  const resources = store.search(resourceType, [] as SqlFilter[]);
 
   const bundle = {
     resourceType: "Bundle",
