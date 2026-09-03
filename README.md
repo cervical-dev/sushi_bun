@@ -4,7 +4,7 @@ A FHIR R5 server powered by [Bun](https://bun.sh) and [FSH SUSHI](https://fshsch
 
 > **Not production-ready.** This is a development and prototyping tool. Use it to explore FHIR server design, test clients, or prototype APIs.
 
-Write your FHIR server's contract in **FHIR Shorthand** (`.fsh` files). SUSHI compiles them to JSON. This server reads that JSON at startup and dynamically generates every route, handler, and search parameter — no hardcoded resource types, no static config files, no hand-written routes.
+Write your FHIR server's contract in **FHIR Shorthand** (`.fsh` files). SUSHI compiles them to JSON. This server reads that JSON at startup and generates every route, handler, and search parameter dynamically. No hardcoded resource types. No static config files.
 
 Resources are validated against StructureDefinitions on create, update, and batch entry processing. Invalid resources return `422` with an OperationOutcome.
 
@@ -43,7 +43,7 @@ The server starts at `http://localhost:3000`. Hit `/metadata` to see what it can
 1. You write `.fsh` files defining resources, interactions, search parameters, and operations
 2. `sushi build` compiles them into FHIR JSON (CapabilityStatement, StructureDefinitions, etc.)
 3. At startup, the server parses the CapabilityStatement into a `RouteConfig` and loads StructureDefinitions for validation
-4. Routes are generated dynamically — only endpoints you declared exist
+4. Routes are generated dynamically. Only endpoints you declared exist.
 5. SQLite stores resources as JSON blobs with soft-delete and version history
 6. On create/update, resources are validated against their StructureDefinition
 
@@ -76,7 +76,7 @@ Usage: #definition
 * rest.resource[=].interaction[+].code = #search-type
 ```
 
-Change the FSH, rebuild, restart — the server adapts.
+Change the FSH, rebuild, restart. The server adapts.
 
 ## API
 
@@ -95,8 +95,6 @@ Once running, the server supports standard FHIR R5 REST interactions:
 | `POST` | `/` | Batch / Transaction |
 | `POST` | `/:type/$everything` | Operation (if declared) |
 | `POST` | `/:type/$validate` | Operation (if declared) |
-
-Which endpoints actually exist depends entirely on what you declared in your FSH.
 
 ### Search
 
@@ -138,11 +136,11 @@ curl -X POST http://localhost:3000/ \
   }'
 ```
 
-Transactions execute atomically (all-or-nothing). Batches execute entries independently. Both support `urn:uuid:` temporary ID resolution across entries. Each entry is validated against its StructureDefinition.
+Transactions execute atomically (all-or-nothing). Batches run entries independently. Both resolve `urn:uuid:` references across entries and validate each one against its StructureDefinition.
 
 ## Validation
 
-Resources are validated against StructureDefinitions on create, update, and batch/transaction entry processing. The `$validate` operation provides explicit validation.
+The `$validate` operation provides explicit validation outside of create/update/batch flows.
 
 The validator checks:
 
@@ -211,7 +209,7 @@ sushi_bun/
 
 **Zero runtime dependencies.** The entire server runs on:
 
-- `bun` — runtime + HTTP server + SQLite
+- `bun` — runtime, HTTP server, and SQLite
 - `fsh-sushi` — dev only, compiles FSH to JSON
 - `fast-check` — dev only, property-based testing
 - `@types/bun` — dev only, TypeScript types
@@ -244,7 +242,7 @@ sushi_bun/
 
 ### Bring your own handlers
 
-Override any FHIR interaction by passing a `handlers` object to `createServer`. Only override what you need — the rest use the built-in defaults.
+Override any FHIR interaction by passing a `handlers` object to `createServer`. Only override what you need. The rest use the built-in defaults.
 
 ```typescript
 import { defaultHandlers } from "./src/handlers/default.ts";
@@ -261,7 +259,7 @@ const { server } = await createServer({
 });
 ```
 
-Each handler receives the request and the resource config. See `src/handlers/` for the default implementations.
+See `src/handlers/` for the default implementations.
 
 ### Bring your own storage
 
