@@ -343,6 +343,29 @@ describe("Batch and Transaction operations", () => {
       expect(body.entry[0].response.status).toBe("400");
     });
 
+    it("does not validate resource payload on DELETE entries", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [
+            {
+              request: { method: "DELETE", url: `Patient/${created.id}` },
+              resource: { resourceType: "Patient" },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.entry[0].response.status).toBe("204");
+    });
+
     it("reports 405 for POST to resource without create interaction", async () => {
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",

@@ -142,3 +142,56 @@ describe("buildElementIndex", () => {
     expect(index.get("Patient.gender")!.min).toBe(1);
   });
 });
+
+describe("type-resolver integration with loadValidators", () => {
+  it("resolves baseDefinition when loading validators", async () => {
+    const { loadValidators } = await import("../../src/fhir/validator-loader.ts");
+
+    const baseSD = {
+      resourceType: "StructureDefinition" as const,
+      id: "Patient",
+      url: "http://hl7.org/fhir/StructureDefinition/Patient",
+      type: "Patient",
+      snapshot: {
+        element: [
+          { id: "Patient", path: "Patient" },
+          { id: "Patient.id", path: "Patient.id", type: [{ code: "id" }], min: 0, max: "1" },
+          { id: "Patient.name", path: "Patient.name", type: [{ code: "HumanName" }], min: 0, max: "*" },
+        ],
+      },
+    };
+
+    const profileSD = {
+      resourceType: "StructureDefinition" as const,
+      id: "my-patient",
+      url: "http://example.org/fhir/StructureDefinition/my-patient",
+      type: "Patient",
+      baseDefinition: "http://hl7.org/fhir/StructureDefinition/Patient",
+      differential: {
+        element: [
+          { id: "Patient.name", path: "Patient.name", min: 1, max: "*", mustSupport: true },
+        ],
+      },
+    };
+
+    const registry = new Map<string, any>();
+    registry.set(baseSD.url, baseSD);
+    registry.set(profileSD.url, profileSD);
+
+    const { resolveStructureDefinition } = await import("../../src/fhir/schema/type-resolver.ts");
+    const resolved = resolveStructureDefinition(profileSD, registry);
+
+    expect(resolved.differential?.element).toBeDefined();
+    const elements = resolved.differential!.element;
+    expect(elements.length).toBeGreaterThanOrEqual(2);
+
+    const idElement = elements.find(e => e.id === "Patient.id");
+    expect(idElement).toBeDefined();
+    expect(idElement!.min).toBe(0);
+
+    const nameElement = elements.find(e => e.id === "Patient.name");
+    expect(nameElement).toBeDefined();
+    expect(nameElement!.min).toBe(1);
+    expect(nameElement!.mustSupport).toBe(true);
+  });
+});

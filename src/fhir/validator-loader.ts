@@ -1,4 +1,5 @@
 import type { StructureDefinition } from "./types.ts";
+import { resolveStructureDefinition } from "./schema/type-resolver.ts";
 
 export interface ValidatorRegistry {
   getValidator(resourceType: string, profileUrl?: string): StructureDefinition | undefined;
@@ -27,9 +28,25 @@ export async function loadValidators(
     }
   } catch (err) {
     if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-      // Directory does not exist — no validators loaded
+      console.warn(`[validator-loader] No StructureDefinitions found in "${sdDir}" — directory does not exist`);
     } else {
       throw err;
+    }
+  }
+
+  if (byType.size === 0) {
+    console.warn(`[validator-loader] No StructureDefinitions loaded from "${sdDir}"`);
+  }
+
+  for (const [url, sd] of byUrl) {
+    if (sd.baseDefinition) {
+      const resolved = resolveStructureDefinition(sd, byUrl);
+      byUrl.set(url, resolved);
+      const typeList = byType.get(sd.type);
+      if (typeList) {
+        const idx = typeList.findIndex(s => s.url === url);
+        if (idx >= 0) typeList[idx] = resolved;
+      }
     }
   }
 

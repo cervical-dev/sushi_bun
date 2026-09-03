@@ -19,8 +19,7 @@ interface Slot {
 
 function validateEntry(
   entry: BundleEntry,
-  config: RouteConfig,
-  tempIdMap: Map<string, string>
+  config: RouteConfig
 ): { entry: BundleEntry; error?: string } {
   if (!entry.request) {
     return {
@@ -231,14 +230,14 @@ export async function handleBatch(
 
   for (let i = 0; i < body.entry.length; i++) {
     const rawEntry = body.entry[i]!;
-    const result = validateEntry(rawEntry, config, tempIdMap);
+    const result = validateEntry(rawEntry, config);
 
     if (!result.error) {
       slots.push({ index: i, response: result.entry });
       continue;
     }
 
-    if (validators) {
+    if (validators && (result.error === "create" || result.error === "update")) {
       const resourceError = validateResourceEntry(result.entry, validators);
       if (resourceError) {
         slots.push({ index: i, response: resourceError });

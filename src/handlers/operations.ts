@@ -74,9 +74,9 @@ async function handleValidate(
       resourceType: "OperationOutcome",
       issue: [
         {
-          severity: "information",
-          code: "informational",
-          diagnostics: "Validation passed (no validators loaded)",
+          severity: "warning",
+          code: "not-found",
+          diagnostics: "Validation not performed: no StructureDefinitions loaded on server",
         },
       ],
     };

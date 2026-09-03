@@ -16,10 +16,11 @@ export function defaultHandlers(dbPath?: string, validators?: ValidatorRegistry)
 export function defaultHandlers(store: ResourceStore, validators?: ValidatorRegistry, translateFilters?: FilterTranslator): Promise<HandlerProvider>;
 export async function defaultHandlers(
   dbPathOrStore?: string | ResourceStore,
-  validators?: ValidatorRegistry,
+  validatorsOrFilters?: ValidatorRegistry | FilterTranslator,
   translateFilters?: FilterTranslator
 ): Promise<HandlerProvider> {
   let store: ResourceStore;
+  let validators: ValidatorRegistry | undefined;
   let filters: FilterTranslator;
 
   if (typeof dbPathOrStore === "string" || dbPathOrStore === undefined) {
@@ -27,9 +28,16 @@ export async function defaultHandlers(
     const result = provider.createStore();
     store = result instanceof Promise ? await result : result;
     filters = provider.translateFilters;
+    validators = validatorsOrFilters as ValidatorRegistry | undefined;
   } else {
     store = dbPathOrStore;
-    filters = translateFilters!;
+    if (typeof validatorsOrFilters === "function") {
+      filters = validatorsOrFilters;
+      validators = undefined;
+    } else {
+      validators = validatorsOrFilters;
+      filters = translateFilters!;
+    }
   }
 
   return {

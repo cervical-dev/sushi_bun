@@ -4,6 +4,9 @@ import { checkCardinality } from "./type-checker/cardinality-checker.ts";
 import { checkChoiceType } from "./type-checker/choice-type-checker.ts";
 import { checkFixedValue, checkComplexType } from "./type-checker/complex-type-checker.ts";
 import { validateExtensions } from "./extension/extension-validator.ts";
+import { validateBundle } from "./bundle-validator.ts";
+import { validateSlicing } from "./slicing/slice-validator.ts";
+import { checkBinding } from "./terminology/binding-checker.ts";
 import { parse } from "./fhirpath/parser.ts";
 import { evaluate } from "./fhirpath/evaluator.ts";
 
@@ -42,15 +45,20 @@ export function validateResource(
     return { valid: false, issues };
   }
 
-  if (!sd.differential?.element) {
+  const elements = sd.differential?.element ?? sd.snapshot?.element;
+
+  if (!elements) {
     return { valid: true, issues: [] };
   }
-
-  const elements = sd.differential.element;
 
   if (options.checkChoiceTypes) {
     const choiceIssues = checkChoiceType(resource, elements, sd.type);
     issues.push(...choiceIssues);
+  }
+
+  if (resource.resourceType === "Bundle") {
+    const bundleIssues = validateBundle(resource, sd);
+    issues.push(...bundleIssues);
   }
 
   const elementIndex = new Map<string, StructureDefinitionElement[]>();
@@ -66,6 +74,20 @@ export function validateResource(
   for (const element of elements) {
     if (element.sliceName) continue;
     validateElementPipeline(resource, element, sd.type, issues, options, 0, elementIndex);
+  }
+
+  const codeSystems = new Map<string, Set<string>>();
+  for (const element of elements) {
+    if (element.sliceName) continue;
+    if (!element.binding) continue;
+    validateBinding(resource, element, sd.type, issues, codeSystems);
+  }
+
+  for (const element of elements) {
+    if (element.sliceName) continue;
+    if (!element.slicing) continue;
+    const sliceIssues = validateSlicing(resource, element.path, elements);
+    issues.push(...sliceIssues);
   }
 
   for (const element of elements) {
@@ -140,7 +162,79 @@ function validateMustSupport(
   }
 }
 
+function validateBinding(
+  resource: Record<string, unknown>,
+  element: StructureDefinitionElement,
+  resourceType: string,
+  issues: ValidationIssue[],
+  codeSystems: Map<string, Set<string>>
+): void {
+  if (!element.binding) return;
+
+  const pathParts = element.path.split(".");
+  const relativePath = pathParts.slice(1);
+  if (relativePath.length === 0) return;
+
+  const leafName = relativePath[relativePath.length - 1]!;
+
+  const resolved = relativePath.length === 1
+    ? [{ node: resource, pathWithIndices: [] }]
+    : resolvePathNodes(resource, relativePath.slice(0, -1));
+
+  for (const { node, pathWithIndices } of resolved) {
+    if (typeof node !== "object" || node === null) continue;
+
+    const nodeObj = node as Record<string, unknown>;
+    const leafValue = nodeObj[leafName];
+
+    if (leafValue === undefined || leafValue === null) continue;
+
+    const values = Array.isArray(leafValue) ? leafValue : [leafValue];
+    for (const v of values) {
+      if (v === undefined || v === null) continue;
+
+      let code: unknown;
+      let system: string | undefined;
+
+      if (typeof v === "string") {
+        code = v;
+      } else if (typeof v === "object" && v !== null) {
+        const vObj = v as Record<string, unknown>;
+        if (typeof vObj.code === "string") {
+          code = vObj.code;
+          system = typeof vObj.system === "string" ? vObj.system : undefined;
+        } else if (Array.isArray(vObj.coding) && vObj.coding.length > 0) {
+          const firstCoding = vObj.coding[0] as Record<string, unknown>;
+          if (typeof firstCoding.code === "string") {
+            code = firstCoding.code;
+            system = typeof firstCoding.system === "string" ? firstCoding.system : undefined;
+          }
+        }
+      }
+
+      if (code !== undefined) {
+        const location = relativePath.length === 1
+          ? `${resourceType}.${leafName}`
+          : formatLocation(resourceType, pathWithIndices, leafName);
+        const bindingIssues = checkBinding(code, system, element.binding, codeSystems);
+        for (const issue of bindingIssues) {
+          issues.push({ ...issue, location });
+        }
+      }
+    }
+  }
+}
+
+const MAX_FHIRPATH_CACHE = 1000;
 const fhirPathCache = new Map<string, ReturnType<typeof parse>>();
+
+function cacheFhirPath(expression: string, ast: ReturnType<typeof parse>): void {
+  if (fhirPathCache.size >= MAX_FHIRPATH_CACHE) {
+    const firstKey = fhirPathCache.keys().next().value;
+    if (firstKey !== undefined) fhirPathCache.delete(firstKey);
+  }
+  fhirPathCache.set(expression, ast);
+}
 
 function validateFhirPathConstraints(
   resource: Record<string, unknown>,
@@ -161,7 +255,7 @@ function validateFhirPathConstraints(
     if (!ast) {
       try {
         ast = parse(constraint.expression);
-        fhirPathCache.set(constraint.expression, ast);
+        cacheFhirPath(constraint.expression, ast);
       } catch {
         issues.push({
           severity: "warning",
@@ -173,6 +267,8 @@ function validateFhirPathConstraints(
       }
     }
 
+    const leafName = relativePath[relativePath.length - 1]!;
+
     const resolved = relativePath.length === 1
       ? [{ node: resource, pathWithIndices: [] }]
       : resolvePathNodes(resource, relativePath.slice(0, -1));
@@ -180,13 +276,22 @@ function validateFhirPathConstraints(
     for (const { node, pathWithIndices } of resolved) {
       if (typeof node !== "object" || node === null) continue;
 
+      let evalContext: unknown;
+      if (relativePath.length === 1) {
+        evalContext = node;
+      } else {
+        const nodeObj = node as Record<string, unknown>;
+        evalContext = nodeObj[leafName];
+        if (evalContext === undefined || evalContext === null) continue;
+      }
+
       try {
-        const result = evaluate(ast, node as Record<string, unknown>);
+        const result = evaluate(ast, evalContext as Record<string, unknown>);
         if (result === false || result === undefined || result === null) {
           const severity = constraint.severity === "error" ? "error" : "warning";
           const location = relativePath.length === 1
             ? `${resourceType}.${relativePath[0]}`
-            : formatLocation(resourceType, pathWithIndices, relativePath[relativePath.length - 1]!);
+            : formatLocation(resourceType, pathWithIndices, leafName);
           issues.push({
             severity,
             code: "invariant",
@@ -251,6 +356,35 @@ function validateElementPipeline(
       // FHIRPath constraints will be evaluated in Phase 4
     }
 
+    if (Array.isArray(value) && element.type) {
+      const elementTypeName = element.type[0]?.code;
+      if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
+        const childKey = element.path.split(".").slice(1).join(".");
+        const childElements = elementIndex.get(childKey);
+        if (childElements && childElements.length > 0) {
+          for (let i = 0; i < value.length; i++) {
+            const item = value[i];
+            if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+              const itemLocation = `${resourceType}.${leafName}[${i}]`;
+              const complexIssues = checkComplexType(item, element, itemLocation, childElements);
+              issues.push(...complexIssues);
+            }
+          }
+        }
+      }
+    } else if (typeof value === "object" && value !== null && !Array.isArray(value) && element.type) {
+      const elementTypeName = element.type[0]?.code;
+      if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
+        const childKey = element.path.split(".").slice(1).join(".");
+        const childElements = elementIndex.get(childKey);
+        if (childElements && childElements.length > 0) {
+          const location = `${resourceType}.${leafName}`;
+          const complexIssues = checkComplexType(value, element, location, childElements);
+          issues.push(...complexIssues);
+        }
+      }
+    }
+
     return;
   }
 
@@ -303,20 +437,19 @@ function validateElementPipeline(
               const itemLocation = `${location}[${i}]`;
               const complexIssues = checkComplexType(item, element, itemLocation, childElements);
               issues.push(...complexIssues);
-
-              for (const childEl of childElements) {
-                validateElementPipeline(
-                  item as Record<string, unknown>,
-                  childEl,
-                  resourceType,
-                  issues,
-                  options,
-                  depth + 1,
-                  elementIndex
-                );
-              }
             }
           }
+        }
+      }
+    } else if (typeof leafValue === "object" && leafValue !== null && !Array.isArray(leafValue) && element.type) {
+      const elementTypeName = element.type[0]?.code;
+      if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
+        const childKey = relativePath.join(".");
+        const childElements = elementIndex.get(childKey);
+        if (childElements && childElements.length > 0) {
+          const location = formatLocation(resourceType, pathWithIndices, leafName);
+          const complexIssues = checkComplexType(leafValue, element, location, childElements);
+          issues.push(...complexIssues);
         }
       }
     }

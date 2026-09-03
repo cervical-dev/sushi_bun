@@ -161,3 +161,43 @@ describe("buildRoutes", () => {
     expect(opHandlers.POST).toBeDefined();
   });
 });
+
+describe("defaultHandlers backward compatibility", () => {
+  it("supports old 2-arg form (store, translateFilters) without crashing on search", async () => {
+    const { store } = createTestStore();
+    const provider = sqliteProvider();
+    const handlers = await defaultHandlers(store, provider.translateFilters as any);
+    expect(handlers).toBeDefined();
+    expect(handlers.handleCreate).toBeDefined();
+    const config = {
+      type: "Patient",
+      interactions: new Set(["search-type"]),
+      searchParams: new Map(),
+      operations: [],
+      versioning: "no-version",
+      readHistory: false,
+      updateCreate: false,
+      conditionalCreate: false,
+      conditionalRead: "not-supported",
+      conditionalUpdate: false,
+      conditionalDelete: "not-supported",
+    };
+    const req = new Request("http://localhost/Patient?name=Smith", { method: "GET" });
+    const res = await handlers.handleSearch(req, config);
+    expect(res.status).not.toBe(500);
+  });
+
+  it("supports new 3-arg form (store, validators, translateFilters)", async () => {
+    const { store } = createTestStore();
+    const provider = sqliteProvider();
+    const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
+    expect(handlers).toBeDefined();
+    expect(handlers.handleCreate).toBeDefined();
+  });
+
+  it("supports string path form (dbPath, validators?)", async () => {
+    const handlers = await defaultHandlers(":memory:");
+    expect(handlers).toBeDefined();
+    expect(handlers.handleCreate).toBeDefined();
+  });
+});

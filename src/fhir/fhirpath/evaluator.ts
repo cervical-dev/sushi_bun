@@ -278,6 +278,8 @@ function evaluateBinary(node: BinaryNode, context: unknown): unknown {
   const rightArr = toArray(right);
 
   if (node.operator === "=") {
+    if (leftArr.length === 0 && rightArr.length === 0) return true;
+    if (leftArr.length === 0 || rightArr.length === 0) return false;
     if (leftArr.length === 1 && rightArr.length === 1) {
       return leftArr[0] === rightArr[0];
     }
@@ -285,6 +287,8 @@ function evaluateBinary(node: BinaryNode, context: unknown): unknown {
   }
 
   if (node.operator === "!=") {
+    if (leftArr.length === 0 && rightArr.length === 0) return false;
+    if (leftArr.length === 0 || rightArr.length === 0) return true;
     if (leftArr.length === 1 && rightArr.length === 1) {
       return leftArr[0] !== rightArr[0];
     }

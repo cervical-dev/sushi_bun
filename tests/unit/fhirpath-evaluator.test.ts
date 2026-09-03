@@ -198,4 +198,32 @@ describe("FHIRPath Evaluator", () => {
       expect(evalExpr("nonexistent.nested.path", patient)).toBeUndefined();
     });
   });
+
+  describe("empty collection equality (FHIRPath spec)", () => {
+    const emptyPatient = { resourceType: "Patient" };
+
+    it("{} = {} returns true", () => {
+      expect(evalExpr("nonexistent = alsoNonexistent", emptyPatient)).toBe(true);
+    });
+
+    it("{} != {} returns false", () => {
+      expect(evalExpr("nonexistent != alsoNonexistent", emptyPatient)).toBe(false);
+    });
+
+    it("{} = 'x' returns false", () => {
+      expect(evalExpr("nonexistent = 'x'", emptyPatient)).toBe(false);
+    });
+
+    it("{} != 'x' returns true", () => {
+      expect(evalExpr("nonexistent != 'x'", emptyPatient)).toBe(true);
+    });
+
+    it("'x' = {} returns false", () => {
+      expect(evalExpr("gender = nonexistent", patient)).toBe(false);
+    });
+
+    it("'x' != {} returns true", () => {
+      expect(evalExpr("gender != nonexistent", patient)).toBe(true);
+    });
+  });
 });

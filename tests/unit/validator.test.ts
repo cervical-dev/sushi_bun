@@ -492,3 +492,353 @@ describe("Bug 1.9 — BackboneElement recursive validation of actual children", 
     expect(result.valid).toBe(true);
   });
 });
+
+describe("Snapshot-only StructureDefinition fallback", () => {
+  const snapshotOnlySD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "snapshot-patient",
+    url: "http://example.org/fhir/StructureDefinition/snapshot-patient",
+    type: "Patient",
+    snapshot: {
+      element: [
+        { id: "Patient.name", path: "Patient.name", min: 1, max: "*" },
+        { id: "Patient.name.family", path: "Patient.name.family", min: 1, type: [{ code: "string" }] },
+      ],
+    },
+  };
+
+  it("validates when SD has only snapshot (no differential)", () => {
+    const resource = {
+      resourceType: "Patient",
+      name: [{ given: ["John"] }],
+    };
+    const result = validateResource(resource, snapshotOnlySD);
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.location === "Patient.name[0].family" && i.code === "cardinality")).toBe(true);
+  });
+
+  it("passes when snapshot-only SD resource is valid", () => {
+    const resource = {
+      resourceType: "Patient",
+      name: [{ family: "Smith" }],
+    };
+    const result = validateResource(resource, snapshotOnlySD);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("Single complex type validation (1..1 BackboneElement)", () => {
+  const patientSD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "test-single-complex",
+    url: "http://test/StructureDefinition/test-single-complex",
+    type: "Patient",
+    differential: {
+      element: [
+        { id: "Patient", path: "Patient" },
+        { id: "Patient.contact", path: "Patient.contact", min: 1, max: "1", type: [{ code: "BackboneElement" }] },
+        { id: "Patient.contact.name", path: "Patient.contact.name", min: 1, max: "1", type: [{ code: "HumanName" }] },
+        { id: "Patient.contact.name.family", path: "Patient.contact.name.family", min: 1, max: "1", type: [{ code: "string" }] },
+      ],
+    },
+  };
+
+  it("validates nested children of a single BackboneElement (not array)", () => {
+    const resource = {
+      resourceType: "Patient",
+      contact: { name: { given: ["John"] } },
+    };
+    const result = validateResource(resource, patientSD);
+    expect(result.valid).toBe(false);
+    const familyMissing = result.issues.find(
+      (i) => i.location === "Patient.contact.name.family" && i.code === "cardinality"
+    );
+    expect(familyMissing).toBeTruthy();
+  });
+
+  it("passes when single BackboneElement has all required children", () => {
+    const resource = {
+      resourceType: "Patient",
+      contact: { name: { family: "Smith" } },
+    };
+    const result = validateResource(resource, patientSD);
+    expect(result.valid).toBe(true);
+  });
+
+  it("checkComplexType runs for single BackboneElement values", () => {
+    const resource = {
+      resourceType: "Patient",
+      contact: {},
+    };
+    const result = validateResource(resource, patientSD, {
+      checkPrimitives: false,
+      checkFixedValues: false,
+      checkChoiceTypes: false,
+      evaluateConstraints: false,
+      checkExtensions: false,
+    });
+    expect(result.valid).toBe(false);
+    expect(result.issues.some((i) => i.code === "cardinality")).toBe(true);
+  });
+
+  it("checkComplexType catches empty single BackboneElement via structural check", () => {
+    const resource = {
+      resourceType: "Patient",
+      contact: {},
+    };
+    const result = validateResource(resource, patientSD);
+    const complexIssue = result.issues.find(
+      (i) => i.diagnostics.includes("empty") || i.diagnostics.includes("at least 1 element")
+    );
+    expect(complexIssue).toBeTruthy();
+  });
+});
+
+describe("FHIRPath constraint leaf context", () => {
+  const constraintSD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "test-fhirpath-leaf",
+    url: "http://test/StructureDefinition/test-fhirpath-leaf",
+    type: "Patient",
+    differential: {
+      element: [
+        { id: "Patient.name", path: "Patient.name", min: 1, max: "*" },
+        {
+          id: "Patient.name.family",
+          path: "Patient.name.family",
+          min: 1,
+          type: [{ code: "string" }],
+          constraint: [{
+            key: "pat-family-upper",
+            severity: "error",
+            human: "Family name must be all uppercase",
+            expression: "matches('^[A-Z]+$')",
+          }],
+        },
+      ],
+    },
+  };
+
+  it("evaluates FHIRPath constraint on leaf value, not parent object", () => {
+    const resource = {
+      resourceType: "Patient",
+      name: [{ family: "smith" }],
+    };
+    const result = validateResource(resource, constraintSD, {
+      checkPrimitives: false,
+      checkFixedValues: false,
+      checkChoiceTypes: false,
+      evaluateConstraints: true,
+      checkExtensions: false,
+    });
+    const constraintIssue = result.issues.find((i) => i.code === "invariant");
+    expect(constraintIssue).toBeTruthy();
+    expect(constraintIssue!.severity).toBe("error");
+  });
+
+  it("passes when leaf value matches constraint", () => {
+    const resource = {
+      resourceType: "Patient",
+      name: [{ family: "SMITH" }],
+    };
+    const result = validateResource(resource, constraintSD, {
+      checkPrimitives: false,
+      checkFixedValues: false,
+      checkChoiceTypes: false,
+      evaluateConstraints: true,
+      checkExtensions: false,
+    });
+    const constraintIssue = result.issues.find((i) => i.code === "invariant");
+    expect(constraintIssue).toBeUndefined();
+  });
+});
+
+describe("Bundle validation via validateResource", () => {
+  const bundleSD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "Bundle",
+    url: "http://hl7.org/fhir/StructureDefinition/Bundle",
+    type: "Bundle",
+    differential: {
+      element: [
+        { id: "Bundle.type", path: "Bundle.type", type: [{ code: "code" }], min: 1, max: "1" },
+        { id: "Bundle.entry", path: "Bundle.entry", min: 0, max: "*" },
+        { id: "Bundle.entry.request", path: "Bundle.entry.request", min: 0, max: "1" },
+        { id: "Bundle.entry.request.method", path: "Bundle.entry.request.method", type: [{ code: "code" }], min: 1, max: "1" },
+        { id: "Bundle.entry.request.url", path: "Bundle.entry.request.url", type: [{ code: "uri" }], min: 1, max: "1" },
+      ],
+    },
+  };
+
+  it("validates Bundle.type via bundle-validator", () => {
+    const resource = {
+      resourceType: "Bundle",
+      type: "invalid-type",
+      entry: [],
+    };
+    const result = validateResource(resource, bundleSD);
+    const typeIssue = result.issues.find((i) => i.location === "Bundle.type" && i.code === "invalid-value");
+    expect(typeIssue).toBeTruthy();
+  });
+
+  it("validates Bundle.type missing", () => {
+    const resource = {
+      resourceType: "Bundle",
+      entry: [],
+    };
+    const result = validateResource(resource, bundleSD);
+    const typeIssue = result.issues.find((i) => i.location === "Bundle.type" && i.code === "cardinality");
+    expect(typeIssue).toBeTruthy();
+  });
+
+  it("passes for valid Bundle", () => {
+    const resource = {
+      resourceType: "Bundle",
+      type: "batch",
+      entry: [
+        { request: { method: "POST", url: "Patient" }, resource: { resourceType: "Patient" } },
+      ],
+    };
+    const result = validateResource(resource, bundleSD);
+    expect(result.valid).toBe(true);
+  });
+});
+
+describe("Binding validation via validateResource", () => {
+  const bindingSD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "test-binding",
+    url: "http://test/StructureDefinition/test-binding",
+    type: "Observation",
+    differential: {
+      element: [
+        { id: "Observation", path: "Observation" },
+        {
+          id: "Observation.status",
+          path: "Observation.status",
+          min: 1,
+          max: "1",
+          type: [{ code: "code" }],
+          binding: {
+            strength: "required",
+            valueSet: "http://hl7.org/fhir/ValueSet/observation-status",
+          },
+        },
+      ],
+    },
+  };
+
+  it("reports error for code not in bound system (required binding, empty codeSystems)", () => {
+    const resource = {
+      resourceType: "Observation",
+      status: "invalid-status",
+    };
+    const result = validateResource(resource, bindingSD);
+    const bindingIssue = result.issues.find((i) => i.code === "missing-code-system" || i.code === "invalid-code");
+    expect(bindingIssue).toBeTruthy();
+    expect(bindingIssue!.severity).toBe("error");
+  });
+
+  it("reports error for any code when no codeSystems loaded (required binding)", () => {
+    const resource = {
+      resourceType: "Observation",
+      status: { coding: [{ system: "http://hl7.org/fhir/observation-status", code: "final" }] },
+    };
+    const result = validateResource(resource, bindingSD);
+    const bindingIssue = result.issues.find((i) => i.code === "invalid-code");
+    expect(bindingIssue).toBeTruthy();
+    expect(bindingIssue!.severity).toBe("error");
+  });
+
+  it("does not enforce example bindings", () => {
+    const exampleSD: StructureDefinition = {
+      resourceType: "StructureDefinition",
+      id: "test-example-binding",
+      url: "http://test/StructureDefinition/test-example-binding",
+      type: "Observation",
+      differential: {
+        element: [
+          { id: "Observation", path: "Observation" },
+          {
+            id: "Observation.status",
+            path: "Observation.status",
+            min: 1,
+            max: "1",
+            type: [{ code: "code" }],
+            binding: {
+              strength: "example",
+              valueSet: "http://hl7.org/fhir/ValueSet/observation-status",
+            },
+          },
+        ],
+      },
+    };
+    const resource = {
+      resourceType: "Observation",
+      status: "anything",
+    };
+    const result = validateResource(resource, exampleSD);
+    const bindingIssue = result.issues.find((i) => i.code === "invalid-code" || i.code === "missing-code-system");
+    expect(bindingIssue).toBeUndefined();
+  });
+});
+
+describe("Slicing validation via validateResource", () => {
+  const slicedSD: StructureDefinition = {
+    resourceType: "StructureDefinition",
+    id: "test-slicing",
+    url: "http://test/StructureDefinition/test-slicing",
+    type: "Patient",
+    differential: {
+      element: [
+        {
+          id: "Patient.identifier",
+          path: "Patient.identifier",
+          slicing: { discriminator: [{ type: "value", path: "type.coding.code" }], rules: "closed" },
+          min: 1,
+          max: "*",
+        },
+        { id: "Patient.identifier:mrn", path: "Patient.identifier", sliceName: "mrn", min: 1, max: "1" },
+        { id: "Patient.identifier:insurance", path: "Patient.identifier", sliceName: "insurance", min: 0, max: "1" },
+      ],
+    },
+  };
+
+  it("validates closed slicing — rejects unrecognized slices", () => {
+    const resource = {
+      resourceType: "Patient",
+      identifier: [
+        { type: { coding: [{ code: "mrn" }] }, system: "http://example.org/mrn", value: "123" },
+        { type: { coding: [{ code: "unknown" }] }, system: "http://example.org/unknown", value: "UNK" },
+      ],
+    };
+    const result = validateResource(resource, slicedSD);
+    const sliceIssue = result.issues.find((i) => i.code === "unrecognized-slice");
+    expect(sliceIssue).toBeTruthy();
+  });
+
+  it("validates closed slicing — fails when required slice missing", () => {
+    const resource = {
+      resourceType: "Patient",
+      identifier: [
+        { type: { coding: [{ code: "insurance" }] }, system: "http://example.org/insurance", value: "INS1" },
+      ],
+    };
+    const result = validateResource(resource, slicedSD);
+    const sliceIssue = result.issues.find((i) => i.code === "missing-slice");
+    expect(sliceIssue).toBeTruthy();
+  });
+
+  it("passes when all required slices are present", () => {
+    const resource = {
+      resourceType: "Patient",
+      identifier: [
+        { type: { coding: [{ code: "mrn" }] }, system: "http://example.org/mrn", value: "123" },
+        { type: { coding: [{ code: "insurance" }] }, system: "http://example.org/insurance", value: "INS1" },
+      ],
+    };
+    const result = validateResource(resource, slicedSD);
+    const sliceIssues = result.issues.filter((i) => i.code === "unrecognized-slice" || i.code === "missing-slice" || i.code === "too-many-slices");
+    expect(sliceIssues).toHaveLength(0);
+  });
+});
