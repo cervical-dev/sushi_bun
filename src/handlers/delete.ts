@@ -14,6 +14,16 @@ export function handleDelete(req: Request, config: ResourceConfig, store: Resour
 
   const deleted = store.softDelete(resourceType, id);
   if (!deleted) {
+    if (store.exists(resourceType, id)) {
+      const versions = store.listVersions(resourceType, id);
+      const versionId = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
+      return new Response(null, {
+        status: 204,
+        headers: {
+          ETag: `W/"${versionId}"`,
+        },
+      });
+    }
     return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
   }
 
@@ -23,7 +33,6 @@ export function handleDelete(req: Request, config: ResourceConfig, store: Resour
   return new Response(null, {
     status: 204,
     headers: {
-      "Content-Type": "application/fhir+json",
       ETag: `W/"${versionId}"`,
     },
   });

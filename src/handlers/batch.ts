@@ -4,6 +4,7 @@ import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
 import { createOperationOutcome } from "./metadata.ts";
+import { applyPatch, PatchError } from "../fhir/patch.ts";
 
 interface ValidatableEntry {
   entry: BundleEntry;
@@ -74,6 +75,15 @@ function validateEntry(
         return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "DELETE requires an id" }] } } } };
       }
       return { entry, error: "delete" };
+    }
+    case "PATCH": {
+      if (!resourceConfig.interactions.has("patch")) {
+        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Patch not supported for ${resourceType}` }] } } } };
+      }
+      if (!id) {
+        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH requires an id in the URL" }] } } } };
+      }
+      return { entry, error: "patch" };
     }
     case "GET": {
       if (!id) {
@@ -169,7 +179,45 @@ function executeEntry(
           response: { status: "200" },
         };
       }
+      if (store.isDeleted(resourceType, id!)) {
+        return { response: { status: "410" } };
+      }
       return { response: { status: "404" } };
+    }
+    case "patch": {
+      const existing = store.read(resourceType, id!);
+      if (!existing) {
+        if (store.isDeleted(resourceType, id!)) {
+          return { response: { status: "410" } };
+        }
+        return { response: { status: "404" } };
+      }
+      const patchOps = entry.resource as unknown as Array<{ op: string; path: string; value?: unknown }>;
+      if (!Array.isArray(patchOps) || patchOps.length === 0) {
+        return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH requires a non-empty array of operations" }] } } };
+      }
+      try {
+        const patched = applyPatch(existing as Record<string, unknown>, patchOps);
+        if ((patched as FhirResource).resourceType !== resourceType) {
+          return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH cannot change resourceType" }] } } };
+        }
+        const updated = store.update(resourceType, id!, { ...patched, id: id! } as FhirResource);
+        return {
+          fullUrl: `${resourceType}/${updated.id}`,
+          resource: updated,
+          response: {
+            status: "200",
+            location: `${resourceType}/${updated.id}/_history/${updated.meta?.versionId}`,
+            etag: `W/"${updated.meta?.versionId}"`,
+          },
+        };
+      } catch (err) {
+        if (err instanceof PatchError) {
+          const code = err.message.includes("test failed") ? "precondition-failed" : "invalid";
+          return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code, diagnostics: err.message }] } } };
+        }
+        return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: err instanceof Error ? err.message : "Patch failed" }] } } };
+      }
     }
     default:
       return { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: `Unsupported method: ${method}` }] } } };
@@ -246,17 +294,13 @@ export async function handleBatch(
     return createOperationOutcome("error", "invalid", "Bundle type must be 'transaction' or 'batch'");
   }
 
-  if (!body.entry || body.entry.length === 0) {
-    return createOperationOutcome("error", "invalid", "Bundle must have at least one entry");
-  }
-
   const isTransaction = body.type === "transaction";
   const tempIdMap = new Map<string, string>();
 
   const slots: Slot[] = [];
 
-  for (let i = 0; i < body.entry.length; i++) {
-    const rawEntry = body.entry[i]!;
+  for (let i = 0; i < body.entry!.length; i++) {
+    const rawEntry = body.entry![i]!;
     const result = validateEntry(rawEntry, config);
 
     if (!result.error) {
@@ -289,15 +333,23 @@ export async function handleBatch(
     }
 
     const validEntries = slots.filter((s) => s.validatable).map((s) => s.validatable!);
+
+    const operationPhase: Record<string, number> = { delete: 0, create: 1, update: 2, patch: 2, read: 3 };
+    const sortedEntries = [...validEntries].sort((a, b) => (operationPhase[a.operation] ?? 4) - (operationPhase[b.operation] ?? 4));
+
     let responseEntries: BundleEntry[];
     try {
-      responseEntries = store.transaction(() => {
-        const results: BundleEntry[] = [];
-        for (const { entry, operation } of validEntries) {
-          results.push(executeEntry(entry, operation, store, config, tempIdMap));
+      const sortedResults = store.transaction(() => {
+        const results: Array<{ index: number; entry: BundleEntry }> = [];
+        for (const ve of sortedEntries) {
+          results.push({ index: ve.index, entry: executeEntry(ve.entry, ve.operation, store, config, tempIdMap) });
         }
         return results;
       });
+      responseEntries = new Array(validEntries.length);
+      for (const r of sortedResults) {
+        responseEntries[r.index] = r.entry;
+      }
     } catch (err) {
       responseEntries = validEntries.map(() => ({
         response: {

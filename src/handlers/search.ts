@@ -1,6 +1,7 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
 import type { ResourceStore, FilterTranslator, SqlFilter } from "../store/types.ts";
 import { parseSearchParams } from "../router/params.ts";
+import { createOperationOutcome } from "./metadata.ts";
 
 export function handleSearch(
   req: Request,
@@ -62,4 +63,32 @@ export function handleSearch(
     status: 200,
     headers: { "Content-Type": "application/fhir+json" },
   });
+}
+
+export async function handlePostSearch(
+  req: Request,
+  config: ResourceConfig,
+  store: ResourceStore,
+  translateFilters: FilterTranslator
+): Promise<Response> {
+  const contentType = req.headers.get("Content-Type") ?? "";
+  if (!contentType.includes("application/x-www-form-urlencoded")) {
+    return createOperationOutcome("error", "unsupported", "Content-Type must be application/x-www-form-urlencoded", 415);
+  }
+
+  let body: string;
+  try {
+    body = await req.text();
+  } catch {
+    return createOperationOutcome("error", "invalid", "Could not read request body");
+  }
+
+  const url = new URL(req.url);
+  const searchParams = new URLSearchParams(body);
+  for (const [key, value] of searchParams.entries()) {
+    url.searchParams.append(key, value);
+  }
+
+  const modifiedReq = new Request(url.toString(), { method: "GET" });
+  return handleSearch(modifiedReq, config, store, translateFilters);
 }

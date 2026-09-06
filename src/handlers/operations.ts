@@ -139,3 +139,15 @@ function extractResourceFromParameters(params: Record<string, unknown>): Record<
   }
   return null;
 }
+
+export function handleSystemOperation(
+  req: Request,
+  operationName: string
+): Response {
+  return createOperationOutcome(
+    "error",
+    "not-found",
+    `System operation $${operationName} is not supported`,
+    404
+  );
+}

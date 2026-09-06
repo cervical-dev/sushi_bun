@@ -73,6 +73,7 @@ export interface SearchParamConfig {
 export interface RouteConfig {
   resources: Map<string, ResourceConfig>;
   systemInteractions: Set<string>;
+  systemOperations?: OperationConfig[];
 }
 
 export interface SearchFilter {

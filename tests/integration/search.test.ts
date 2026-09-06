@@ -108,4 +108,17 @@ describe("Search operations", () => {
     expect(body.total).toBe(0);
     expect(body.entry.length).toBe(0);
   });
+
+  it("searches via POST with form-encoded body", async () => {
+    const res = await fetch(`${server.baseUrl}/Patient/_search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "name=Alpha",
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, any>;
+    expect(body.resourceType).toBe("Bundle");
+    expect(body.type).toBe("searchset");
+    expect(body.total).toBe(1);
+  });
 });

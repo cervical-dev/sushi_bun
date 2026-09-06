@@ -1,12 +1,15 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { createTestStore } from "../helpers.ts";
+import type { Database } from "bun:sqlite";
 
 describe("ResourceStore", () => {
   let store: ReturnType<typeof createTestStore>["store"];
+  let db: Database;
 
   beforeEach(() => {
     const s = createTestStore();
     store = s.store;
+    db = s.db;
   });
 
   it("creates a resource and assigns an id", () => {
@@ -19,10 +22,33 @@ describe("ResourceStore", () => {
     expect(created.meta?.lastUpdated).toBeDefined();
   });
 
-  it("creates with client-supplied id", () => {
+  it("creates with server-assigned id ignoring client id", () => {
     const patient = { resourceType: "Patient", id: "my-custom-id", name: [{ family: "Smith" }] };
     const created = store.create("Patient", patient);
-    expect(created.id).toBe("my-custom-id");
+    expect(created.id).not.toBe("my-custom-id");
+    expect(created.id).toBeDefined();
+  });
+
+  it("create ignores client meta.versionId and assigns version 1", () => {
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }], meta: { versionId: "99" } };
+    const created = store.create("Patient", patient);
+    expect(created.meta?.versionId).toBe("1");
+    const row = db.query("SELECT data FROM resources WHERE id = ?").get(created.id!) as { data: string };
+    const stored = JSON.parse(row.data);
+    expect(stored.meta?.versionId).toBeUndefined();
+  });
+
+  it("create ignores client meta.lastUpdated and assigns current timestamp", () => {
+    const before = Date.now();
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }], meta: { lastUpdated: "2000-01-01T00:00:00Z" } };
+    const created = store.create("Patient", patient);
+    const after = Date.now();
+    const stored = new Date(created.meta!.lastUpdated!).getTime();
+    expect(stored).toBeGreaterThanOrEqual(before);
+    expect(stored).toBeLessThanOrEqual(after);
+    const row = db.query("SELECT data FROM resources WHERE id = ?").get(created.id!) as { data: string };
+    const parsed = JSON.parse(row.data);
+    expect(parsed.meta?.lastUpdated).toBeUndefined();
   });
 
   it("reads a resource by id", () => {
@@ -173,13 +199,14 @@ describe("ResourceStore", () => {
     expect(result).toBeNull();
   });
 
-  it("allows re-creating resource with same id after soft-delete", () => {
-    const patient = { resourceType: "Patient", id: "reuse-id", name: [{ family: "Smith" }] };
+  it("allows re-creating resource after soft-delete with server-assigned id", () => {
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }] };
     const created = store.create("Patient", patient);
     store.softDelete("Patient", created.id!);
 
     const recreated = store.create("Patient", { ...patient });
-    expect(recreated.id).toBe("reuse-id");
+    expect(recreated.id).toBeDefined();
+    expect(recreated.id).not.toBe(created.id);
     expect(recreated.meta?.versionId).toBe("1");
   });
 
@@ -188,5 +215,55 @@ describe("ResourceStore", () => {
     expect(() => {
       store.search("Patient", [{ column: "1=1 OR 1=1 --", op: "=", value: "x" }]);
     }).toThrow("Invalid column");
+  });
+
+  it("update ignores client meta.versionId and assigns next version", () => {
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }] };
+    const created = store.create("Patient", patient);
+    const updated = store.update("Patient", created.id!, { ...patient, gender: "male", meta: { versionId: "99" } });
+    expect(updated.meta?.versionId).toBe("2");
+    const row = db.query("SELECT data FROM resources WHERE id = ?").get(created.id!) as { data: string };
+    const stored = JSON.parse(row.data);
+    expect(stored.meta?.versionId).toBeUndefined();
+  });
+
+  it("update ignores client meta.lastUpdated and assigns current timestamp", () => {
+    const patient = { resourceType: "Patient", name: [{ family: "Smith" }] };
+    const created = store.create("Patient", patient);
+    const before = Date.now();
+    const updated = store.update("Patient", created.id!, { ...patient, gender: "male", meta: { lastUpdated: "2000-01-01T00:00:00Z" } });
+    const after = Date.now();
+    const stored = new Date(updated.meta!.lastUpdated!).getTime();
+    expect(stored).toBeGreaterThanOrEqual(before);
+    expect(stored).toBeLessThanOrEqual(after);
+    const row = db.query("SELECT data FROM resources WHERE id = ?").get(created.id!) as { data: string };
+    const parsed = JSON.parse(row.data);
+    expect(parsed.meta?.lastUpdated).toBeUndefined();
+  });
+
+  it("exists returns true for live resource", () => {
+    const created = store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    expect(store.exists("Patient", created.id!)).toBe(true);
+  });
+
+  it("exists returns true for soft-deleted resource", () => {
+    const created = store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    store.softDelete("Patient", created.id!);
+    expect(store.exists("Patient", created.id!)).toBe(true);
+  });
+
+  it("exists returns false for never-created id", () => {
+    expect(store.exists("Patient", "nonexistent")).toBe(false);
+  });
+
+  it("isDeleted returns true only for soft-deleted resource", () => {
+    const created = store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    expect(store.isDeleted("Patient", created.id!)).toBe(false);
+    store.softDelete("Patient", created.id!);
+    expect(store.isDeleted("Patient", created.id!)).toBe(true);
+  });
+
+  it("isDeleted returns false for never-created id", () => {
+    expect(store.isDeleted("Patient", "nonexistent")).toBe(false);
   });
 });

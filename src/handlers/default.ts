@@ -7,10 +7,11 @@ import { handleRead } from "./read.ts";
 import { handleCreate } from "./create.ts";
 import { handleUpdate } from "./update.ts";
 import { handleDelete } from "./delete.ts";
-import { handleSearch } from "./search.ts";
-import { handleHistory } from "./history.ts";
+import { handleSearch, handlePostSearch } from "./search.ts";
+import { handleHistory, handleTypeHistory, handleSystemHistory } from "./history.ts";
+import { handlePatch } from "./patch.ts";
 import { handleBatch } from "./batch.ts";
-import { handleOperation } from "./operations.ts";
+import { handleOperation, handleSystemOperation } from "./operations.ts";
 
 export function defaultHandlers(dbPath?: string, validators?: ValidatorRegistry): Promise<HandlerProvider>;
 export function defaultHandlers(store: ResourceStore, validators?: ValidatorRegistry, translateFilters?: FilterTranslator): Promise<HandlerProvider>;
@@ -46,10 +47,15 @@ export async function defaultHandlers(
     handleCreate: (req, config) => handleCreate(req, config, store, validators),
     handleUpdate: (req, config) => handleUpdate(req, config, store, validators),
     handleDelete: (req, config) => handleDelete(req, config, store),
+    handlePatch: (req, config) => handlePatch(req, config, store, validators),
     handleSearch: (req, config) => handleSearch(req, config, store, filters),
+    handlePostSearch: (req, config) => handlePostSearch(req, config, store, filters),
     handleHistory: (req, config) => handleHistory(req, config, store),
+    handleTypeHistory: (req, config) => handleTypeHistory(req, config, store),
+    handleSystemHistory: (req) => handleSystemHistory(req, store),
     handleBatch: (req, config) => handleBatch(req, config, store, validators),
     handleOperation: (req, operationName, config) => handleOperation(req, operationName, config, store, validators),
+    handleSystemOperation: (req, operationName) => handleSystemOperation(req, operationName),
     validators,
   };
 }

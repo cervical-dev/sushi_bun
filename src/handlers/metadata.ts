@@ -14,7 +14,8 @@ export function createOperationOutcome(
   severity: "fatal" | "error" | "warning" | "information",
   code: string,
   diagnostics: string,
-  status: number = 400
+  status: number = 400,
+  etag?: string
 ): Response {
   const outcome: OperationOutcome = {
     resourceType: "OperationOutcome",
@@ -26,7 +27,11 @@ export function createOperationOutcome(
       },
     ],
   };
-  return Response.json(outcome, { status });
+  const headers: Record<string, string> = { "Content-Type": "application/fhir+json" };
+  if (etag) {
+    headers.ETag = etag;
+  }
+  return Response.json(outcome, { status, headers });
 }
 
 export function createOperationOutcomeFromIssues(

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { createTestServer, type TestServer } from "../helpers.ts";
+import { createTestServer, createTestServerWithCapability, type TestServer } from "../helpers.ts";
 
 describe("Server routing respects CapabilityStatement", () => {
   let server: TestServer;
@@ -167,5 +167,123 @@ describe("Server routing respects CapabilityStatement", () => {
     expect(res.status).toBe(200);
     const body = await res.json() as Record<string, any>;
     expect(body.resourceType).toBe("OperationOutcome");
+  });
+
+  describe("HEAD support", () => {
+    it("returns same headers as GET with no body", async () => {
+      const created = server.store.create("Patient", {
+        resourceType: "Patient",
+        name: [{ family: "HeadTest" }],
+      });
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}`, { method: "HEAD" });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("ETag")).toBeDefined();
+      expect(res.headers.get("Content-Type")).toBe("application/fhir+json");
+      const text = await res.text();
+      expect(text).toBe("");
+    });
+  });
+
+  describe("trailing slash", () => {
+    it("serves resource with trailing slash", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient/`);
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.resourceType).toBe("Bundle");
+    });
+  });
+
+  describe("CORS", () => {
+    it("includes CORS headers on response", async () => {
+      const res = await fetch(`${server.baseUrl}/metadata`);
+      expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+    });
+  });
+
+  describe("Date header", () => {
+    it("includes Date header on response", async () => {
+      const res = await fetch(`${server.baseUrl}/metadata`);
+      expect(res.headers.get("Date")).toBeDefined();
+    });
+  });
+
+  describe("content negotiation", () => {
+    it("returns 406 for unsupported Accept header", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        headers: { Accept: "application/xml" },
+      });
+      expect(res.status).toBe(406);
+      const body = await res.json() as Record<string, any>;
+      expect(body.resourceType).toBe("OperationOutcome");
+    });
+
+    it("returns json for standard Accept header", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        headers: { Accept: "application/fhir+json" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns json when Accept includes fhir+json", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        headers: { Accept: "text/html, application/fhir+json" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("returns 406 for xml Accept on write endpoint", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/fhir+json",
+          Accept: "application/xml",
+        },
+        body: JSON.stringify({ resourceType: "Patient", name: [{ family: "Test" }] }),
+      });
+      expect(res.status).toBe(406);
+    });
+
+    it("allows wildcard Accept header", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        headers: { Accept: "*/*" },
+      });
+      expect(res.status).toBe(200);
+    });
+
+    it("allows Accept header with application/json", async () => {
+      const res = await fetch(`${server.baseUrl}/Patient`, {
+        headers: { Accept: "application/json" },
+      });
+      expect(res.status).toBe(200);
+    });
+  });
+
+  describe("system history", () => {
+    it("returns 404 when history-system not in CapabilityStatement", async () => {
+      const noHistoryConfig = {
+        resourceType: "CapabilityStatement" as const,
+        kind: "instance" as const,
+        status: "active" as const,
+        date: "2026-08-31",
+        fhirVersion: "5.0.0",
+        format: ["json"],
+        rest: [{
+          mode: "server",
+          resource: [{
+            type: "Patient",
+            interaction: [{ code: "read" }],
+          }],
+          interaction: [{ code: "transaction" }, { code: "batch" }],
+        }],
+      };
+      const noHistoryServer = await createTestServerWithCapability(noHistoryConfig);
+      try {
+        const res = await fetch(`${noHistoryServer.baseUrl}/_history`);
+        expect(res.status).toBe(404);
+      } finally {
+        noHistoryServer.stop();
+      }
+    });
   });
 });

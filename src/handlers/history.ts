@@ -1,6 +1,43 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
-import type { ResourceStore } from "../store/types.ts";
+import type { ResourceStore, TypeHistoryRecord } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
+
+function buildHistoryBundle(url: URL, entries: BundleEntry[], selfUrl: string): Response {
+  const baseUrl = `${url.protocol}//${url.host}`;
+  const links: BundleLink[] = [{ relation: "self", url: `${baseUrl}${selfUrl}` }];
+
+  const bundle: Bundle = {
+    resourceType: "Bundle",
+    type: "history",
+    total: entries.length,
+    entry: entries,
+    link: links,
+  };
+
+  return Response.json(bundle, {
+    status: 200,
+    headers: { "Content-Type": "application/fhir+json" },
+  });
+}
+
+function historyRecordToEntry(v: TypeHistoryRecord): BundleEntry {
+  const resource = JSON.parse(v.data);
+  resource.id = v.id;
+  resource.meta = { ...resource.meta, versionId: String(v.version_id), lastUpdated: v.last_updated };
+  return {
+    fullUrl: `${v.resource_type}/${v.id}/_history/${v.version_id}`,
+    resource,
+    request: {
+      method: "GET",
+      url: `${v.resource_type}/${v.id}/_history/${v.version_id}`,
+    },
+    response: {
+      status: "200",
+      lastModified: v.last_updated,
+      etag: `W/"${v.version_id}"`,
+    },
+  };
+}
 
 export function handleHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
   const url = new URL(req.url);
@@ -34,19 +71,29 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
     };
   });
 
-  const baseUrl = `${url.protocol}//${url.host}`;
-  const links: BundleLink[] = [{ relation: "self", url: `${baseUrl}/${resourceType}/${id}/_history` }];
+  return buildHistoryBundle(url, entries, `/${resourceType}/${id}/_history`);
+}
 
-  const bundle: Bundle = {
-    resourceType: "Bundle",
-    type: "history",
-    total: entries.length,
-    entry: entries,
-    link: links,
-  };
+export function handleTypeHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
+  const url = new URL(req.url);
+  const pathParts = url.pathname.split("/").filter(Boolean);
+  const resourceType = pathParts[0]!;
+  const since = url.searchParams.get("_since") ?? undefined;
 
-  return Response.json(bundle, {
-    status: 200,
-    headers: { "Content-Type": "application/fhir+json" },
-  });
+  if (!config.interactions.has("history-type")) {
+    return createOperationOutcome("error", "not-supported", `Type history not supported for ${resourceType}`, 405);
+  }
+
+  const records = store.listTypeHistory(resourceType, since);
+  const entries = records.map(historyRecordToEntry);
+  return buildHistoryBundle(url, entries, `/${resourceType}/_history`);
+}
+
+export function handleSystemHistory(req: Request, store: ResourceStore): Response {
+  const url = new URL(req.url);
+  const since = url.searchParams.get("_since") ?? undefined;
+
+  const records = store.listSystemHistory(since);
+  const entries = records.map(historyRecordToEntry);
+  return buildHistoryBundle(url, entries, `/_history`);
 }

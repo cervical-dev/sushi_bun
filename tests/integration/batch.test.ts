@@ -138,6 +138,43 @@ describe("Batch and Transaction operations", () => {
       const searchBody = await searchRes.json() as Record<string, any>;
       expect(searchBody.total).toBe(0);
     });
+
+    it("processes transaction entries in correct order", async () => {
+      const created = server.store.create("Patient", samplePatient({ name: [{ family: "ToDelete", given: ["Order"] }] }));
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "transaction",
+          entry: [
+            {
+              request: { method: "GET", url: `Patient/${created.id}` },
+            },
+            {
+              fullUrl: "urn:uuid:new-patient",
+              request: { method: "POST", url: "Patient" },
+              resource: samplePatient({ name: [{ family: "CreatedAfter", given: ["Order"] }] }),
+            },
+            {
+              request: { method: "DELETE", url: `Patient/${created.id}` },
+            },
+          ],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.type).toBe("transaction-response");
+      expect(body.entry.length).toBe(3);
+
+      const statuses = body.entry.map((e: any) => e.response.status);
+
+      expect(statuses[0]).toBe("410");
+      expect(statuses[1]).toBe("201");
+      expect(statuses[2]).toBe("204");
+    });
   });
 
   describe("error handling", () => {
@@ -186,7 +223,7 @@ describe("Batch and Transaction operations", () => {
       expect(body.entry[0].response.status).toBe("404");
     });
 
-    it("rejects empty bundle entries", async () => {
+    it("accepts empty batch bundle", async () => {
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
         headers: { "Content-Type": "application/fhir+json" },
@@ -197,7 +234,27 @@ describe("Batch and Transaction operations", () => {
         }),
       });
 
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.type).toBe("batch-response");
+      expect(body.entry.length).toBe(0);
+    });
+
+    it("accepts empty transaction bundle", async () => {
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "transaction",
+          entry: [],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.type).toBe("transaction-response");
+      expect(body.entry.length).toBe(0);
     });
 
     it("rejects entry missing request", async () => {
@@ -312,7 +369,7 @@ describe("Batch and Transaction operations", () => {
           type: "batch",
           entry: [
             {
-              request: { method: "PATCH", url: "Patient/123" },
+              request: { method: "LINK", url: "Patient/123" },
             },
           ],
         }),
@@ -385,6 +442,96 @@ describe("Batch and Transaction operations", () => {
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("405");
+    });
+  });
+
+  describe("batch PATCH", () => {
+    it("patches a patient in a batch", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [{
+            request: { method: "PATCH", url: `Patient/${created.id}` },
+            resource: [{ op: "replace", path: "/gender", value: "female" }],
+          }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.entry[0].response.status).toBe("200");
+      expect(body.entry[0].resource.gender).toBe("female");
+    });
+
+    it("returns 422 when batch PATCH changes resourceType", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [{
+            request: { method: "PATCH", url: `Patient/${created.id}` },
+            resource: [{ op: "replace", path: "/resourceType", value: "Observation" }],
+          }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.entry[0].response.status).toBe("422");
+    });
+
+    it("returns 410 when batch PATCH on deleted resource", async () => {
+      const created = server.store.create("Patient", samplePatient());
+      server.store.softDelete("Patient", created.id!);
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [{
+            request: { method: "PATCH", url: `Patient/${created.id}` },
+            resource: [{ op: "replace", path: "/gender", value: "female" }],
+          }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.entry[0].response.status).toBe("410");
+    });
+
+    it("returns precondition-failed when batch PATCH test op fails", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify({
+          resourceType: "Bundle",
+          type: "batch",
+          entry: [{
+            request: { method: "PATCH", url: `Patient/${created.id}` },
+            resource: [{ op: "test", path: "/gender", value: "wrong" }],
+          }],
+        }),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.entry[0].response.status).toBe("422");
+      const issue = body.entry[0].response.outcome.issue[0];
+      expect(issue.code).toBe("precondition-failed");
     });
   });
 });

@@ -55,4 +55,34 @@ describe("Operations", () => {
       expect(body.resourceType).toBe("OperationOutcome");
     });
   });
+
+  describe("instance operations", () => {
+    it("routes instance validate operation", async () => {
+      const created = server.store.create("Patient", samplePatient());
+
+      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/$validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify(samplePatient()),
+      });
+
+      expect(res.status).toBe(200);
+      const body = await res.json() as Record<string, any>;
+      expect(body.resourceType).toBe("OperationOutcome");
+    });
+  });
+
+  describe("system operations", () => {
+    it("routes system-level operation", async () => {
+      const res = await fetch(`${server.baseUrl}/$validate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/fhir+json" },
+        body: JSON.stringify(samplePatient()),
+      });
+
+      expect(res.status).toBe(404);
+      const body = await res.json() as Record<string, any>;
+      expect(body.resourceType).toBe("OperationOutcome");
+    });
+  });
 });

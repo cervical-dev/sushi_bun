@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { FhirResource } from "../fhir/types.ts";
-import type { ResourceStore, VersionRecord, SqlFilter } from "./types.ts";
+import type { ResourceStore, VersionRecord, TypeHistoryRecord, SqlFilter } from "./types.ts";
 import { randomUUID } from "crypto";
 
 interface ResourceRecord {
@@ -50,6 +50,22 @@ export function createResourceStore(db: Database): ResourceStore {
     `SELECT version_id, last_updated FROM resources_history WHERE id = $id AND resource_type = $resource_type ORDER BY version_id`
   );
 
+  const typeHistoryStmt = db.prepare(
+    `SELECT * FROM resources_history WHERE resource_type = $resource_type ORDER BY last_updated DESC`
+  );
+
+  const typeHistorySinceStmt = db.prepare(
+    `SELECT * FROM resources_history WHERE resource_type = $resource_type AND last_updated >= $since ORDER BY last_updated DESC`
+  );
+
+  const systemHistoryStmt = db.prepare(
+    `SELECT * FROM resources_history ORDER BY last_updated DESC`
+  );
+
+  const systemHistorySinceStmt = db.prepare(
+    `SELECT * FROM resources_history WHERE last_updated >= $since ORDER BY last_updated DESC`
+  );
+
   const updateStmt = db.prepare(
     `UPDATE resources SET version_id = $version_id, last_updated = $last_updated, data = $data
      WHERE id = $id AND resource_type = $resource_type`
@@ -62,6 +78,10 @@ export function createResourceStore(db: Database): ResourceStore {
 
   const checkDeletedStmt = db.prepare(
     `SELECT is_deleted FROM resources WHERE id = $id AND resource_type = $resource_type`
+  );
+
+  const currentVersionStmt = db.prepare(
+    `SELECT version_id, is_deleted FROM resources WHERE id = $id AND resource_type = $resource_type`
   );
 
   const undeleteStmt = db.prepare(
@@ -140,10 +160,14 @@ export function createResourceStore(db: Database): ResourceStore {
   }
 
   return {
-    create(resourceType: string, resource: FhirResource): FhirResource {
-      const id = resource.id ?? randomUUID();
+    create(resourceType: string, resource: FhirResource, forceId?: string): FhirResource {
+      const id = forceId ?? randomUUID();
       const timestamp = now();
-      const data = JSON.stringify({ ...resource, id, resourceType });
+      const { id: _clientId, meta: clientMeta, ...rest } = resource as any;
+      const cleanMeta = { ...(clientMeta ?? {}) };
+      delete cleanMeta.versionId;
+      delete cleanMeta.lastUpdated;
+      const data = JSON.stringify({ ...rest, id, resourceType, ...(Object.keys(cleanMeta).length > 0 ? { meta: cleanMeta } : {}) });
 
       const runInTx = db.transaction(() => {
         const existing = checkDeletedStmt.get({ $id: id, $resource_type: resourceType }) as { is_deleted: number } | undefined;
@@ -156,7 +180,7 @@ export function createResourceStore(db: Database): ResourceStore {
       });
       runInTx();
 
-      return { ...resource, id, resourceType, meta: { versionId: "1", lastUpdated: timestamp } };
+      return { ...rest, id, resourceType, meta: { versionId: "1", lastUpdated: timestamp } };
     },
 
     read(resourceType: string, id: string): FhirResource | null {
@@ -182,7 +206,11 @@ export function createResourceStore(db: Database): ResourceStore {
 
         const newVersion = existing.version_id + 1;
         const timestamp = now();
-        const data = JSON.stringify({ ...resource, id, resourceType });
+        const { id: _clientId, meta: clientMeta, ...rest } = resource as any;
+        const cleanMeta = { ...(clientMeta ?? {}) };
+        delete cleanMeta.versionId;
+        delete cleanMeta.lastUpdated;
+        const data = JSON.stringify({ ...rest, id, resourceType, ...(Object.keys(cleanMeta).length > 0 ? { meta: cleanMeta } : {}) });
 
         updateStmt.run({
           $id: id,
@@ -200,7 +228,7 @@ export function createResourceStore(db: Database): ResourceStore {
           $data: data,
         });
 
-        return { ...resource, id, resourceType, meta: { versionId: String(newVersion), lastUpdated: timestamp } };
+        return { ...rest, id, resourceType, meta: { versionId: String(newVersion), lastUpdated: timestamp } };
       });
 
       return runInTx();
@@ -235,8 +263,38 @@ export function createResourceStore(db: Database): ResourceStore {
       return runInTx();
     },
 
+    exists(resourceType: string, id: string): boolean {
+      const row = checkDeletedStmt.get({ $id: id, $resource_type: resourceType }) as { is_deleted: number } | undefined;
+      return row !== undefined && row !== null;
+    },
+
+    isDeleted(resourceType: string, id: string): boolean {
+      const row = checkDeletedStmt.get({ $id: id, $resource_type: resourceType }) as { is_deleted: number } | undefined;
+      return row !== undefined && row !== null && row.is_deleted === 1;
+    },
+
+    currentVersion(resourceType: string, id: string): { versionId: number; isDeleted: boolean } | null {
+      const row = currentVersionStmt.get({ $id: id, $resource_type: resourceType }) as { version_id: number; is_deleted: number } | undefined;
+      if (!row) return null;
+      return { versionId: row.version_id, isDeleted: row.is_deleted === 1 };
+    },
+
     listVersions(resourceType: string, id: string): VersionRecord[] {
       return readAllVersionsStmt.all({ $id: id, $resource_type: resourceType }) as VersionRecord[];
+    },
+
+    listTypeHistory(resourceType: string, since?: string): TypeHistoryRecord[] {
+      if (since) {
+        return typeHistorySinceStmt.all({ $resource_type: resourceType, $since: since }) as TypeHistoryRecord[];
+      }
+      return typeHistoryStmt.all({ $resource_type: resourceType }) as TypeHistoryRecord[];
+    },
+
+    listSystemHistory(since?: string): TypeHistoryRecord[] {
+      if (since) {
+        return systemHistorySinceStmt.all({ $since: since }) as TypeHistoryRecord[];
+      }
+      return systemHistoryStmt.all() as TypeHistoryRecord[];
     },
 
     search(resourceType: string, filters: unknown, offset = 0, limit = 20): FhirResource[] {

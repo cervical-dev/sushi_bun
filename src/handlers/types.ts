@@ -8,10 +8,15 @@ export interface HandlerProvider {
   handleRead?: (req: Request, config: ResourceConfig) => Response;
   handleUpdate?: (req: Request, config: ResourceConfig) => Promise<Response>;
   handleDelete?: (req: Request, config: ResourceConfig) => Response;
+  handlePatch?: (req: Request, config: ResourceConfig) => Promise<Response>;
   handleSearch?: (req: Request, config: ResourceConfig) => Response;
+  handlePostSearch?: (req: Request, config: ResourceConfig) => Promise<Response>;
   handleHistory?: (req: Request, config: ResourceConfig) => Response;
+  handleTypeHistory?: (req: Request, config: ResourceConfig) => Response;
+  handleSystemHistory?: (req: Request) => Response;
   handleBatch?: (req: Request, config: RouteConfig) => Promise<Response>;
   handleOperation?: (req: Request, operationName: string, config: ResourceConfig) => Response | Promise<Response>;
+  handleSystemOperation?: (req: Request, operationName: string) => Response | Promise<Response>;
   handleMetadata?: (req: Request, capabilityJson: Record<string, unknown>) => Response;
   validators?: ValidatorRegistry;
 }

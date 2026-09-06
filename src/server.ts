@@ -2,6 +2,7 @@ import { parseCapabilityStatement } from "./fhir/capability.ts";
 import { buildRoutes } from "./router/generator.ts";
 import { defaultHandlers } from "./handlers/default.ts";
 import { loadValidators } from "./fhir/validator-loader.ts";
+import { addStandardHeaders, isAcceptable, normalizeTrailingSlash } from "./router/middleware.ts";
 import type { RouteConfig } from "./fhir/types.ts";
 import type { HandlerProvider } from "./handlers/types.ts";
 
@@ -30,8 +31,25 @@ export async function createServer(serverConfig: ServerConfig) {
     routes,
     fetch(req) {
       const url = new URL(req.url);
+      const normalizedPath = normalizeTrailingSlash(url.pathname);
+
+      if (normalizedPath !== url.pathname) {
+        url.pathname = normalizedPath;
+        return new Response(null, { status: 301, headers: { Location: url.toString() } });
+      }
+
+      if (!isAcceptable(req.headers.get("Accept"))) {
+        return addStandardHeaders(Response.json(
+          {
+            resourceType: "OperationOutcome",
+            issue: [{ severity: "error", code: "not-acceptable", diagnostics: "Accept header must include application/fhir+json or application/json" }],
+          },
+          { status: 406, headers: { "Content-Type": "application/fhir+json" } }
+        ));
+      }
+
       if (url.pathname === "/" && req.method === "GET") {
-        return Response.json(
+        return addStandardHeaders(Response.json(
           {
             resourceType: "OperationOutcome",
             issue: [
@@ -46,9 +64,9 @@ export async function createServer(serverConfig: ServerConfig) {
             status: 200,
             headers: { "Content-Type": "application/fhir+json" },
           }
-        );
+        ));
       }
-      return Response.json(
+      return addStandardHeaders(Response.json(
         {
           resourceType: "OperationOutcome",
           issue: [
@@ -63,7 +81,7 @@ export async function createServer(serverConfig: ServerConfig) {
           status: 404,
           headers: { "Content-Type": "application/fhir+json" },
         }
-      );
+      ));
     },
     error(err) {
       console.error("Server error:", err);
