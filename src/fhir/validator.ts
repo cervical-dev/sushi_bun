@@ -9,6 +9,7 @@ import { validateSlicing } from "./slicing/slice-validator.ts";
 import { checkBinding } from "./terminology/binding-checker.ts";
 import { parse } from "./fhirpath/parser.ts";
 import { evaluate } from "./fhirpath/evaluator.ts";
+import { resolvePathNodes, formatLocation } from "./element-path.ts";
 
 const MAX_DEPTH = 64;
 
@@ -454,55 +455,4 @@ function validateElementPipeline(
       }
     }
   }
-}
-
-interface ResolvedNode {
-  node: unknown;
-  pathWithIndices: string[];
-}
-
-function resolvePathNodes(
-  obj: Record<string, unknown>,
-  pathParts: string[],
-  startIdx: number = 0,
-  currentPath: string[] = []
-): ResolvedNode[] {
-  if (startIdx >= pathParts.length) {
-    return [{ node: obj, pathWithIndices: currentPath }];
-  }
-
-  const key = pathParts[startIdx]!;
-  const current = obj[key];
-
-  if (current === undefined || current === null) return [];
-
-  if (Array.isArray(current)) {
-    const results: ResolvedNode[] = [];
-    for (let i = 0; i < current.length; i++) {
-      const item = current[i];
-      if (item !== null && typeof item === "object" && !Array.isArray(item)) {
-        const itemPath = [...currentPath, `${key}[${i}]`];
-        const sub = resolvePathNodes(item as Record<string, unknown>, pathParts, startIdx + 1, itemPath);
-        results.push(...sub);
-      }
-    }
-    return results;
-  }
-
-  if (typeof current === "object") {
-    return resolvePathNodes(current as Record<string, unknown>, pathParts, startIdx + 1, [...currentPath, key]);
-  }
-
-  return [];
-}
-
-function formatLocation(resourceType: string, pathWithIndices: string[], leafName: string): string {
-  const parts = [resourceType];
-  for (const segment of pathWithIndices) {
-    parts.push(`.${segment}`);
-  }
-  if (leafName) {
-    parts.push(`.${leafName}`);
-  }
-  return parts.join("");
 }

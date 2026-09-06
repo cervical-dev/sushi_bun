@@ -1,16 +1,11 @@
 import type { StructureDefinitionElement, ValidationIssue } from "../types.ts";
+import { parseMax } from "../element-path.ts";
 
 interface SliceInfo {
   sliceName: string;
   min: number;
   max: number | undefined;
   discriminatorPath?: string;
-}
-
-function parseMax(max: string | undefined): number | undefined {
-  if (max === undefined || max === "*") return undefined;
-  const n = parseInt(max, 10);
-  return isNaN(n) ? undefined : n;
 }
 
 function matchesDiscriminator(

@@ -1,4 +1,5 @@
 import type { StructureDefinitionElement, ValidationIssue } from "../types.ts";
+import { countValue, parseMax } from "../element-path.ts";
 
 export function checkFixedValue(
   value: unknown,
@@ -101,17 +102,6 @@ export function checkFixedValue(
   }
 
   return [];
-}
-
-function countValue(v: unknown): number {
-  if (v === undefined || v === null) return 0;
-  return Array.isArray(v) ? v.length : 1;
-}
-
-function parseMax(max: string | undefined): number | undefined {
-  if (max === undefined || max === "*") return undefined;
-  const n = parseInt(max, 10);
-  return isNaN(n) ? undefined : n;
 }
 
 export function checkComplexType(
