@@ -2,7 +2,7 @@ import { parseCapabilityStatement } from "./fhir/capability.ts";
 import { buildRoutes } from "./router/generator.ts";
 import { defaultHandlers } from "./handlers/default.ts";
 import { loadValidators } from "./fhir/validator-loader.ts";
-import { addStandardHeaders, isAcceptable, normalizeTrailingSlash } from "./router/middleware.ts";
+import { fallbackFetch } from "./router/fallback.ts";
 import type { RouteConfig } from "./fhir/types.ts";
 import type { HandlerProvider } from "./handlers/types.ts";
 
@@ -29,60 +29,7 @@ export async function createServer(serverConfig: ServerConfig) {
   const server = Bun.serve({
     port: serverConfig.port ?? 3000,
     routes,
-    fetch(req) {
-      const url = new URL(req.url);
-      const normalizedPath = normalizeTrailingSlash(url.pathname);
-
-      if (normalizedPath !== url.pathname) {
-        url.pathname = normalizedPath;
-        return new Response(null, { status: 301, headers: { Location: url.toString() } });
-      }
-
-      if (!isAcceptable(req.headers.get("Accept"))) {
-        return addStandardHeaders(Response.json(
-          {
-            resourceType: "OperationOutcome",
-            issue: [{ severity: "error", code: "not-acceptable", diagnostics: "Accept header must include application/fhir+json or application/json" }],
-          },
-          { status: 406, headers: { "Content-Type": "application/fhir+json" } }
-        ));
-      }
-
-      if (url.pathname === "/" && req.method === "GET") {
-        return addStandardHeaders(Response.json(
-          {
-            resourceType: "OperationOutcome",
-            issue: [
-              {
-                severity: "information",
-                code: "informational",
-                diagnostics: "This is a FHIR R5 server. Use /metadata to discover capabilities.",
-              },
-            ],
-          },
-          {
-            status: 200,
-            headers: { "Content-Type": "application/fhir+json" },
-          }
-        ));
-      }
-      return addStandardHeaders(Response.json(
-        {
-          resourceType: "OperationOutcome",
-          issue: [
-            {
-              severity: "error",
-              code: "not-found",
-              diagnostics: `No route found for ${req.method}`,
-            },
-          ],
-        },
-        {
-          status: 404,
-          headers: { "Content-Type": "application/fhir+json" },
-        }
-      ));
-    },
+    fetch: fallbackFetch,
     error(err) {
       console.error("Server error:", err);
       return Response.json(

@@ -5,7 +5,7 @@ import { sqliteProvider } from "../src/store/sqlite-provider.ts";
 import { defaultHandlers } from "../src/handlers/default.ts";
 import { loadValidators } from "../src/fhir/validator-loader.ts";
 import { buildRoutes } from "../src/router/generator.ts";
-import { addStandardHeaders, isAcceptable, normalizeTrailingSlash } from "../src/router/middleware.ts";
+import { fallbackFetch } from "../src/router/fallback.ts";
 import type { RouteConfig } from "../src/fhir/types.ts";
 import type { ResourceStore, StorageProvider } from "../src/store/types.ts";
 import type { ValidatorRegistry } from "../src/fhir/validator-loader.ts";
@@ -71,33 +71,7 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
   const server = Bun.serve({
     port: 0,
     routes,
-    fetch(req) {
-      const url = new URL(req.url);
-      const normalizedPath = normalizeTrailingSlash(url.pathname);
-
-      if (normalizedPath !== url.pathname) {
-        url.pathname = normalizedPath;
-        return new Response(null, { status: 301, headers: { Location: url.toString() } });
-      }
-
-      if (!isAcceptable(req.headers.get("Accept"))) {
-        return addStandardHeaders(Response.json(
-          {
-            resourceType: "OperationOutcome",
-            issue: [{ severity: "error", code: "not-acceptable", diagnostics: "Accept header must include application/fhir+json or application/json" }],
-          },
-          { status: 406, headers: { "Content-Type": "application/fhir+json" } }
-        ));
-      }
-
-      return addStandardHeaders(Response.json(
-        {
-          resourceType: "OperationOutcome",
-          issue: [{ severity: "error", code: "not-found", diagnostics: `No route for ${req.method} ${url.pathname}` }],
-        },
-        { status: 404, headers: { "Content-Type": "application/fhir+json" } }
-      ));
-    },
+    fetch: fallbackFetch,
   });
 
   return {
@@ -153,24 +127,7 @@ export async function createTestServerWithCapability(capability: Record<string, 
   const server = Bun.serve({
     port: 0,
     routes,
-    fetch(req) {
-      const url = new URL(req.url);
-      const normalizedPath = normalizeTrailingSlash(url.pathname);
-      if (normalizedPath !== url.pathname) {
-        url.pathname = normalizedPath;
-        return new Response(null, { status: 301, headers: { Location: url.toString() } });
-      }
-      if (!isAcceptable(req.headers.get("Accept"))) {
-        return addStandardHeaders(Response.json(
-          { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-acceptable", diagnostics: "Accept header must include application/fhir+json or application/json" }] },
-          { status: 406, headers: { "Content-Type": "application/fhir+json" } }
-        ));
-      }
-      return addStandardHeaders(Response.json(
-        { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-found", diagnostics: `No route for ${req.method} ${url.pathname}` }] },
-        { status: 404, headers: { "Content-Type": "application/fhir+json" } }
-      ));
-    },
+    fetch: fallbackFetch,
   });
 
   return {
