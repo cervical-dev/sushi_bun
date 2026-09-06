@@ -172,4 +172,21 @@ describe("ResourceStore", () => {
     const result = store.readVersion("Patient", created.id!, 999);
     expect(result).toBeNull();
   });
+
+  it("allows re-creating resource with same id after soft-delete", () => {
+    const patient = { resourceType: "Patient", id: "reuse-id", name: [{ family: "Smith" }] };
+    const created = store.create("Patient", patient);
+    store.softDelete("Patient", created.id!);
+
+    const recreated = store.create("Patient", { ...patient });
+    expect(recreated.id).toBe("reuse-id");
+    expect(recreated.meta?.versionId).toBe("1");
+  });
+
+  it("rejects invalid column names in search filters", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    expect(() => {
+      store.search("Patient", [{ column: "1=1 OR 1=1 --", op: "=", value: "x" }]);
+    }).toThrow("Invalid column");
+  });
 });

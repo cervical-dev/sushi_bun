@@ -11,6 +11,10 @@ export function handleRead(req: Request, config: ResourceConfig, store: Resource
 
   const vidStr = pathParts[3];
   if (vidStr) {
+    if (!config.interactions.has("history-instance")) {
+      return createOperationOutcome("error", "not-supported", `History not supported for ${resourceType}`, 405);
+    }
+
     const versionId = parseInt(vidStr, 10);
     if (isNaN(versionId)) {
       return createOperationOutcome("error", "invalid", "Invalid version id");

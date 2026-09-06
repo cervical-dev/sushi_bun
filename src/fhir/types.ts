@@ -133,7 +133,10 @@ export interface StructureDefinitionElement {
   fixedBoolean?: boolean;
   fixedString?: string;
   fixedUri?: string;
+  fixedUrl?: string;
   fixedId?: string;
+  fixedInteger?: number;
+  fixedDecimal?: number;
   patternCodeableConcept?: unknown;
   binding?: ElementBinding;
   constraint?: ElementConstraint[];

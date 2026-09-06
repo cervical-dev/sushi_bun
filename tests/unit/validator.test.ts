@@ -256,7 +256,7 @@ describe("validateResource", () => {
   });
 });
 
-describe("Bug 1.3 — elementIndex key mismatch kills BackboneElement child validation", () => {
+describe("BackboneElement child validation", () => {
   const sd: StructureDefinition = {
     resourceType: "StructureDefinition",
     id: "test-backbone",
@@ -312,7 +312,7 @@ describe("Bug 1.3 — elementIndex key mismatch kills BackboneElement child vali
   });
 });
 
-describe("Bug 1.4 — primitive/fixed checks skip arrays", () => {
+describe("Primitive and fixed value checks inside arrays", () => {
   const sd: StructureDefinition = {
     resourceType: "StructureDefinition",
     id: "test-array-prims",
@@ -410,7 +410,7 @@ describe("Bug 1.4 — primitive/fixed checks skip arrays", () => {
   });
 });
 
-describe("Bug 1.6 — OperationOutcomeIssue missing location field", () => {
+describe("OperationOutcomeIssue location field", () => {
   it("OperationOutcomeIssue interface includes location field", () => {
     const issue: import("../../src/fhir/types.ts").OperationOutcomeIssue = {
       severity: "error",
@@ -433,7 +433,7 @@ describe("Bug 1.6 — OperationOutcomeIssue missing location field", () => {
   });
 });
 
-describe("Bug 1.9 — BackboneElement recursive validation of actual children", () => {
+describe("Deep BackboneElement recursive validation", () => {
   const deepSd: StructureDefinition = {
     resourceType: "StructureDefinition",
     id: "test-deep-backbone",

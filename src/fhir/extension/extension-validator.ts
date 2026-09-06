@@ -18,11 +18,49 @@ export function validateExtensions(
   const issues: ValidationIssue[] = [];
   const extensions = resource.extension;
 
-  if (!Array.isArray(extensions)) return issues;
+  if (Array.isArray(extensions)) {
+    validateExtensionArray(extensions, resourceType, 0, issues, "");
+  }
 
-  validateExtensionArray(extensions, resourceType, 0, issues, "");
+  walkAndValidateExtensions(resource, resourceType, issues, [resourceType]);
 
   return issues;
+}
+
+function walkAndValidateExtensions(
+  node: Record<string, unknown>,
+  resourceType: string,
+  issues: ValidationIssue[],
+  pathParts: string[]
+): void {
+  for (const [key, value] of Object.entries(node)) {
+    if (key === "extension" || key === "url" || key === "resourceType") continue;
+
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        const item = value[i];
+        if (typeof item === "object" && item !== null && !Array.isArray(item)) {
+          const itemObj = item as Record<string, unknown>;
+          const itemLocation = `${pathParts.join(".")}.${key}[${i}]`;
+
+          if (Array.isArray(itemObj.extension)) {
+            validateExtensionArray(itemObj.extension, resourceType, 0, issues, itemLocation);
+          }
+
+          walkAndValidateExtensions(itemObj, resourceType, issues, [...pathParts, `${key}[${i}]`]);
+        }
+      }
+    } else if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+      const childObj = value as Record<string, unknown>;
+      const childLocation = `${pathParts.join(".")}.${key}`;
+
+      if (Array.isArray(childObj.extension)) {
+        validateExtensionArray(childObj.extension, resourceType, 0, issues, childLocation);
+      }
+
+      walkAndValidateExtensions(childObj, resourceType, issues, [...pathParts, key]);
+    }
+  }
 }
 
 function validateExtensionArray(

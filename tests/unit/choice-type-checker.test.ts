@@ -114,4 +114,19 @@ describe("checkChoiceType", () => {
       expect(issues[0]!.location).toContain("Observation.value");
     });
   });
+
+  describe("nested choice types", () => {
+    it("detects multiple choice types in nested objects", () => {
+      const elements: StructureDefinitionElement[] = [
+        { id: "Obs.comp.value[x]", path: "Observation.component.value[x]", type: [{ code: "Quantity" }, { code: "string" }] },
+      ];
+      const resource = {
+        resourceType: "Observation",
+        component: [{ valueString: "a", valueQuantity: { value: 1 } }],
+      };
+      const issues = checkChoiceType(resource, elements, "Observation");
+      expect(issues.length).toBeGreaterThan(0);
+      expect(issues[0]!.code).toBe("multiple-choice-types");
+    });
+  });
 });

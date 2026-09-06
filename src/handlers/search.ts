@@ -14,7 +14,8 @@ export function handleSearch(
 
   const countParam = url.searchParams.get("_count");
   const offsetParam = url.searchParams.get("_offset");
-  const count = Math.max(Math.min(countParam ? (parseInt(countParam, 10) || 20) : 20, 100), 0);
+  const parsedCount = countParam != null ? parseInt(countParam, 10) : NaN;
+  const count = Number.isNaN(parsedCount) ? 20 : Math.max(Math.min(parsedCount, 100), 0);
   const offset = Math.max(offsetParam ? (parseInt(offsetParam, 10) || 0) : 0, 0);
 
   const searchFilters = parseSearchParams(url.searchParams.toString(), config.searchParams);
@@ -30,17 +31,23 @@ export function handleSearch(
   }));
 
   const baseUrl = `${url.protocol}//${url.host}`;
+  const searchParams = new URLSearchParams(url.searchParams);
+  searchParams.delete("_count");
+  searchParams.delete("_offset");
+  const filterString = searchParams.toString();
+  const baseQuery = filterString ? `${filterString}&` : "";
+
   const links: BundleLink[] = [
     { relation: "self", url: `${baseUrl}/${resourceType}?${url.searchParams.toString()}` },
   ];
 
   if (offset > 0) {
-    links.push({ relation: "first", url: `${baseUrl}/${resourceType}?_count=${count}` });
-    links.push({ relation: "previous", url: `${baseUrl}/${resourceType}?_count=${count}&_offset=${Math.max(offset - count, 0)}` });
+    links.push({ relation: "first", url: `${baseUrl}/${resourceType}?${baseQuery}_count=${count}&_offset=0` });
+    links.push({ relation: "previous", url: `${baseUrl}/${resourceType}?${baseQuery}_count=${count}&_offset=${Math.max(offset - count, 0)}` });
   }
 
   if (offset + count < total) {
-    links.push({ relation: "next", url: `${baseUrl}/${resourceType}?_count=${count}&_offset=${offset + count}` });
+    links.push({ relation: "next", url: `${baseUrl}/${resourceType}?${baseQuery}_count=${count}&_offset=${offset + count}` });
   }
 
   const bundle: Bundle = {

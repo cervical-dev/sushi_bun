@@ -128,7 +128,11 @@ function evaluateFunction(node: FunctionNode, context: unknown): unknown {
       if (typeof target === "string" && typeof arg === "string") {
         return target.includes(arg);
       }
-      return false;
+      const flat = flatten(toArray(target));
+      return flat.some(v => {
+        if (typeof v === "string" && typeof arg === "string") return v.includes(arg);
+        return JSON.stringify(v) === JSON.stringify(arg);
+      });
     }
 
     case "startsWith": {
@@ -217,7 +221,7 @@ function evaluateFunction(node: FunctionNode, context: unknown): unknown {
           result.push(val);
         }
       }
-      return result;
+      return [...new Set(result.map(v => JSON.stringify(v)))].map(s => JSON.parse(s as string));
     }
 
     default:
@@ -276,6 +280,10 @@ function evaluateBinary(node: BinaryNode, context: unknown): unknown {
   const right = evaluateNode(node.right, context);
   const leftArr = toArray(left);
   const rightArr = toArray(right);
+
+  if (node.operator === "|") {
+    return [...new Set([...leftArr, ...rightArr].map(v => JSON.stringify(v)))].map(s => JSON.parse(s as string));
+  }
 
   if (node.operator === "=") {
     if (leftArr.length === 0 && rightArr.length === 0) return true;

@@ -83,6 +83,28 @@ describe("checkFixedValue", () => {
     const issues = checkFixedValue("anything", el);
     expect(issues).toHaveLength(0);
   });
+
+  it("validates fixedInteger", () => {
+    const el: StructureDefinitionElement = {
+      id: "Test.count",
+      path: "Test.count",
+      type: [{ code: "integer" }],
+      fixedInteger: 5,
+    };
+    expect(checkFixedValue(5, el)).toHaveLength(0);
+    expect(checkFixedValue(6, el)).toHaveLength(1);
+  });
+
+  it("validates fixedUrl", () => {
+    const el: StructureDefinitionElement = {
+      id: "Test.url",
+      path: "Test.url",
+      type: [{ code: "url" }],
+      fixedUrl: "http://example.com",
+    };
+    expect(checkFixedValue("http://example.com", el)).toHaveLength(0);
+    expect(checkFixedValue("http://other.com", el)).toHaveLength(1);
+  });
 });
 
 describe("checkComplexType", () => {

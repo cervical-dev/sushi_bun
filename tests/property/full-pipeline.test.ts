@@ -59,7 +59,7 @@ const mutationStrategies: FieldRemover[] = [
 ];
 
 describe("Full Validation Pipeline — Property-Based Tests", () => {
-  describe("P1: Fuzz Robustness — never throws on arbitrary JSON", () => {
+  describe("Robustness on arbitrary input", () => {
     it("never throws on arbitrary JSON input with any SD", () => {
       fc.assert(
         fc.property(
@@ -92,7 +92,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     });
   });
 
-  describe("P2: Positive Compliance — valid generated patients always pass", () => {
+  describe("Valid patients pass validation", () => {
     it("all generated conformant patients pass validation", () => {
       fc.assert(
         fc.property(validPatientArbitrary(), (patient) => {
@@ -105,7 +105,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     });
   });
 
-  describe("P3: Targeted Negative Mutation — breaking 1 field always produces errors", () => {
+  describe("Breaking one required field produces errors", () => {
     it("breaking exactly 1 required field always fails with correct location", () => {
       fc.assert(
         fc.property(
@@ -123,7 +123,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     });
   });
 
-  describe("P4: Idempotency — same input always produces same output", () => {
+  describe("Deterministic output", () => {
     it("validateResource is deterministic", () => {
       fc.assert(
         fc.property(
@@ -143,7 +143,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     });
   });
 
-  describe("P5: Error Count Bounds — empty patient produces at least N errors", () => {
+  describe("Minimum error count for empty resource", () => {
     it("empty resource produces at least 4 errors (identifier, name, gender, birthDate min=1)", () => {
       const result = validateResource({ resourceType: "Patient" }, myPatientSD);
       expect(result.valid).toBe(false);
@@ -151,7 +151,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     });
   });
 
-  describe("P6: ResourceType mismatch always produces exactly 1 error", () => {
+  describe("Wrong resourceType produces error", () => {
     it("wrong resourceType always produces invalid-resource-type error", () => {
       fc.assert(
         fc.property(

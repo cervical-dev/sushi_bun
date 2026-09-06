@@ -47,6 +47,10 @@ function validateEntry(
       if (!entry.resource) {
         return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "POST entry must have a resource" }] } } } };
       }
+      const bodyResourceType = (entry.resource as FhirResource).resourceType;
+      if (bodyResourceType && bodyResourceType !== resourceType) {
+        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: `Resource type ${bodyResourceType} does not match URL type ${resourceType}` }] } } } };
+      }
       return { entry, error: "create" };
     }
     case "PUT": {
@@ -75,6 +79,9 @@ function validateEntry(
       if (!id) {
         return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "GET in bundle requires an id" }] } } } };
       }
+      if (!resourceConfig.interactions.has("read")) {
+        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Read not supported for ${resourceType}` }] } } } };
+      }
       return { entry, error: "read" };
     }
     default:
@@ -94,9 +101,29 @@ function executeEntry(
   const resourceType = urlParts[0]!;
   const id = urlParts[1];
 
+  function rewriteReferences(obj: unknown): unknown {
+    if (typeof obj === "string") {
+      if (obj.startsWith("urn:uuid:")) {
+        return tempIdMap.get(obj) ?? obj;
+      }
+      return obj;
+    }
+    if (Array.isArray(obj)) {
+      return obj.map(rewriteReferences);
+    }
+    if (typeof obj === "object" && obj !== null) {
+      const result: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = rewriteReferences(value);
+      }
+      return result;
+    }
+    return obj;
+  }
+
   switch (operation) {
     case "create": {
-      const resource = entry.resource as FhirResource;
+      const resource = rewriteReferences(entry.resource) as FhirResource;
       const created = store.create(resourceType, resource);
       if (entry.fullUrl?.startsWith("urn:uuid:")) {
         tempIdMap.set(entry.fullUrl, `${resourceType}/${created.id}`);
@@ -116,7 +143,7 @@ function executeEntry(
       if (id!.startsWith("urn:")) {
         resolvedId = tempIdMap.get(id!)?.split("/").pop() ?? id!;
       }
-      const putResource = entry.resource as FhirResource;
+      const putResource = rewriteReferences(entry.resource) as FhirResource;
       const updated = store.update(resourceType, resolvedId, { ...putResource, id: resolvedId });
       return {
         fullUrl: `${resourceType}/${updated.id}`,
@@ -297,7 +324,8 @@ export async function handleBatch(
         responseEntries.push(executeEntry(slot.validatable.entry, slot.validatable.operation, store, config, tempIdMap));
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
-        responseEntries.push({ response: { status: "500", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "exception", diagnostics: message }] } } });
+        const status = message === "not-found" ? "404" : "500";
+        responseEntries.push({ response: { status, outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: status === "404" ? "not-found" : "exception", diagnostics: message }] } } });
       }
     }
   }

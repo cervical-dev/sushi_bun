@@ -110,4 +110,39 @@ describe("validateExtensions", () => {
     expect(issues).toHaveLength(1);
     expect(issues[0]!.code).toBe("extension-depth-exceeded");
   });
+
+  it("validates extensions on nested sub-elements", () => {
+    const resource = {
+      resourceType: "Patient",
+      name: [{
+        family: "Smith",
+        extension: [{
+          url: "not-an-absolute-url",
+          valueString: "test",
+        }],
+      }],
+    };
+    const issues = validateExtensions(resource, "Patient");
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.code).toBe("invalid-extension-url");
+    expect(issues[0]!.location).toContain("name");
+  });
+
+  it("validates extensions on deeply nested sub-elements", () => {
+    const resource = {
+      resourceType: "Patient",
+      contact: [{
+        name: {
+          family: "Smith",
+          extension: [{
+            url: "relative/path",
+            valueString: "test",
+          }],
+        },
+      }],
+    };
+    const issues = validateExtensions(resource, "Patient");
+    expect(issues.length).toBeGreaterThan(0);
+    expect(issues[0]!.location).toContain("contact");
+  });
 });

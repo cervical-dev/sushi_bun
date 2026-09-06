@@ -13,10 +13,17 @@ interface ResourceRecord {
 }
 
 const ALLOWED_OPS = new Set(["=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE"]);
+const ALLOWED_COLUMNS = new Set(["resource_type", "is_deleted", "last_updated", "version_id"]);
 
 function validateOp(op: string): void {
   if (!ALLOWED_OPS.has(op)) {
     throw new Error(`Invalid SQL operator: ${op}`);
+  }
+}
+
+function validateColumn(column: string): void {
+  if (!column.startsWith("json:") && !ALLOWED_COLUMNS.has(column)) {
+    throw new Error(`Invalid column: ${column}`);
   }
 }
 
@@ -53,6 +60,15 @@ export function createResourceStore(db: Database): ResourceStore {
      WHERE id = $id AND resource_type = $resource_type`
   );
 
+  const checkDeletedStmt = db.prepare(
+    `SELECT is_deleted FROM resources WHERE id = $id AND resource_type = $resource_type`
+  );
+
+  const undeleteStmt = db.prepare(
+    `UPDATE resources SET is_deleted = 0, version_id = 1, last_updated = $last_updated, data = $data
+     WHERE id = $id AND resource_type = $resource_type`
+  );
+
   function now(): string {
     return new Date().toISOString();
   }
@@ -75,19 +91,49 @@ export function createResourceStore(db: Database): ResourceStore {
     let clause = `resource_type = $resource_type AND is_deleted = 0`;
     const params: Record<string, string> = { $resource_type: resourceType };
 
-    for (let i = 0; i < filters.length; i++) {
-      const filter = filters[i]!;
-      validateOp(filter.op);
-      const paramName = `$p${i}`;
+    const grouped = new Map<string, SqlFilter[]>();
+    for (const filter of filters) {
+      const key = filter.column;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key)!.push(filter);
+    }
 
-      if (filter.column.startsWith("json:")) {
-        const jsonPath = filter.column.slice(5);
-        clause += ` AND json_extract(data, $${`path${i}`}) ${filter.op} ${paramName}`;
-        params[`$path${i}`] = jsonPath;
+    let paramIndex = 0;
+    for (const [column, groupFilters] of grouped) {
+      if (groupFilters.length === 1) {
+        const filter = groupFilters[0]!;
+        validateOp(filter.op);
+        validateColumn(filter.column);
+        const paramName = `$p${paramIndex}`;
+
+        if (filter.column.startsWith("json:")) {
+          const jsonPath = filter.column.slice(5);
+          clause += ` AND json_extract(data, $${`path${paramIndex}`}) ${filter.op} ${paramName}`;
+          params[`$path${paramIndex}`] = jsonPath;
+        } else {
+          clause += ` AND ${filter.column} ${filter.op} ${paramName}`;
+        }
+        params[paramName] = filter.value;
+        paramIndex++;
       } else {
-        clause += ` AND ${filter.column} ${filter.op} ${paramName}`;
+        const orParts: string[] = [];
+        for (const filter of groupFilters) {
+          validateOp(filter.op);
+          validateColumn(filter.column);
+          const paramName = `$p${paramIndex}`;
+
+          if (filter.column.startsWith("json:")) {
+            const jsonPath = filter.column.slice(5);
+            orParts.push(`json_extract(data, $${`path${paramIndex}`}) ${filter.op} ${paramName}`);
+            params[`$path${paramIndex}`] = jsonPath;
+          } else {
+            orParts.push(`${filter.column} ${filter.op} ${paramName}`);
+          }
+          params[paramName] = filter.value;
+          paramIndex++;
+        }
+        clause += ` AND (${orParts.join(" OR ")})`;
       }
-      params[paramName] = filter.value;
     }
 
     return { clause, params };
@@ -100,8 +146,13 @@ export function createResourceStore(db: Database): ResourceStore {
       const data = JSON.stringify({ ...resource, id, resourceType });
 
       const runInTx = db.transaction(() => {
-        insertStmt.run({ $id: id, $resource_type: resourceType, $last_updated: timestamp, $data: data });
-        insertHistoryStmt.run({ $id: id, $resource_type: resourceType, $version_id: 1, $last_updated: timestamp, $data: data });
+        const existing = checkDeletedStmt.get({ $id: id, $resource_type: resourceType }) as { is_deleted: number } | undefined;
+        if (existing && existing.is_deleted === 1) {
+          undeleteStmt.run({ $id: id, $resource_type: resourceType, $last_updated: timestamp, $data: data });
+        } else {
+          insertStmt.run({ $id: id, $resource_type: resourceType, $last_updated: timestamp, $data: data });
+          insertHistoryStmt.run({ $id: id, $resource_type: resourceType, $version_id: 1, $last_updated: timestamp, $data: data });
+        }
       });
       runInTx();
 

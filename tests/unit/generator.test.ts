@@ -92,6 +92,7 @@ describe("buildRoutes", () => {
     expect(routes["/Observation"]).toBeDefined();
     expect(routes["/Observation/:id"]).toBeDefined();
     expect(routes["/Observation/:id/_history"]).toBeUndefined();
+    expect(routes["/Observation/:id/_history/:vid"]).toBeUndefined();
   });
 
   it("does not generate routes for unsupported resource types", async () => {

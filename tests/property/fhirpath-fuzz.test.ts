@@ -31,11 +31,17 @@ describe("FHIRPath — Property-Based Tests", () => {
     ],
   };
 
-  describe("P1: Lexer robustness — never throws on arbitrary strings", () => {
-    it("never throws on arbitrary ASCII input", () => {
+  describe("Lexer robustness", () => {
+    it("never throws on arbitrary ASCII input without unmatched quotes", () => {
       fc.assert(
         fc.property(
-          fc.string({ minLength: 1, maxLength: 50 }),
+          fc.string({ minLength: 1, maxLength: 50 }).filter(s => {
+            let inQuote = false;
+            for (const ch of s) {
+              if (ch === "'") inQuote = !inQuote;
+            }
+            return !inQuote;
+          }),
           (input) => {
             expect(() => tokenize(input)).not.toThrow();
           }
@@ -45,7 +51,7 @@ describe("FHIRPath — Property-Based Tests", () => {
     });
   });
 
-  describe("P2: Parser robustness — never throws on valid token sequences", () => {
+  describe("Parser robustness", () => {
     it("never throws on valid simple identifier expressions", () => {
       fc.assert(
         fc.property(
@@ -59,7 +65,7 @@ describe("FHIRPath — Property-Based Tests", () => {
     });
   });
 
-  describe("P3: Evaluator robustness — never throws on valid ASTs", () => {
+  describe("Evaluator robustness", () => {
     it("never throws when evaluating valid expressions against resource", () => {
       fc.assert(
         fc.property(
@@ -76,7 +82,7 @@ describe("FHIRPath — Property-Based Tests", () => {
     });
   });
 
-  describe("P4: Idempotency — same expression always gives same result", () => {
+  describe("Idempotency", () => {
     it("evaluate is deterministic for simple expressions", () => {
       fc.assert(
         fc.property(
@@ -93,7 +99,7 @@ describe("FHIRPath — Property-Based Tests", () => {
     });
   });
 
-  describe("P5: Boolean operator properties", () => {
+  describe("Boolean operator properties", () => {
     it("x and x === x (idempotent and)", () => {
       fc.assert(
         fc.property(
@@ -156,7 +162,7 @@ describe("FHIRPath — Property-Based Tests", () => {
     });
   });
 
-  describe("P6: empty/exists are complementary", () => {
+  describe("empty and exists are complementary", () => {
     it("x.empty() === not x.exists()", () => {
       fc.assert(
         fc.property(

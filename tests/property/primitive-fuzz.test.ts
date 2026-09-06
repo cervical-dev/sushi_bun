@@ -18,7 +18,7 @@ function elementWithType(typeCode: string): StructureDefinitionElement {
 }
 
 describe("Primitive Checker — Property-Based Tests", () => {
-  describe("P1: Fuzz Robustness — never throws on arbitrary input", () => {
+  describe("Robustness", () => {
     it("never throws for any primitive type code + any JSON value", () => {
       fc.assert(
         fc.property(
@@ -61,7 +61,7 @@ describe("Primitive Checker — Property-Based Tests", () => {
     });
   });
 
-  describe("P2: Positive Compliance — valid generated values always pass", () => {
+  describe("Valid values pass", () => {
     const validPrimitives: [string, fc.Arbitrary<unknown>][] = [
       ["string", fc.string()],
       ["boolean", fc.boolean()],
@@ -97,7 +97,7 @@ describe("Primitive Checker — Property-Based Tests", () => {
     }
   });
 
-  describe("P3: Targeted Negative — wrong type always produces error", () => {
+  describe("Wrong type produces error", () => {
     it("integer type rejects non-numbers", () => {
       fc.assert(
         fc.property(
@@ -144,7 +144,7 @@ describe("Primitive Checker — Property-Based Tests", () => {
     });
   });
 
-  describe("P5: Error count bounds — null always produces exactly 1 error per type", () => {
+  describe("Null produces exactly one error", () => {
     it("null produces exactly 1 error for each type code", () => {
       fc.assert(
         fc.property(
@@ -161,7 +161,7 @@ describe("Primitive Checker — Property-Based Tests", () => {
     });
   });
 
-  describe("P6: Idempotency — same input always produces same output", () => {
+  describe("Deterministic output", () => {
     it("validatePrimitive is deterministic for any value", () => {
       fc.assert(
         fc.property(

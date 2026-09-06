@@ -36,6 +36,8 @@ function getOperator(prefix: string): string {
     case "gt": return ">";
     case "le": return "<=";
     case "ge": return ">=";
+    case "sa": return ">";
+    case "eb": return "<";
     default: return "=";
   }
 }

@@ -243,6 +243,18 @@ describe("validatePrimitive", () => {
     it("rejects non-string", () => {
       expect(validatePrimitive(1990, el)).toHaveLength(1);
     });
+
+    it("rejects month out of range", () => {
+      expect(validatePrimitive("2020-13-01", el)).toHaveLength(1);
+    });
+
+    it("rejects day out of range", () => {
+      expect(validatePrimitive("2020-01-99", el)).toHaveLength(1);
+    });
+
+    it("accepts month 12", () => {
+      expect(validatePrimitive("2020-12-31", el)).toHaveLength(0);
+    });
   });
 
   describe("dateTime type", () => {
@@ -307,6 +319,26 @@ describe("validatePrimitive", () => {
     it("rejects non-string", () => {
       expect(validatePrimitive(1030, el)).toHaveLength(1);
     });
+
+    it("rejects hour out of range", () => {
+      expect(validatePrimitive("25:00:00", el)).toHaveLength(1);
+    });
+
+    it("rejects minute out of range", () => {
+      expect(validatePrimitive("10:99:00", el)).toHaveLength(1);
+    });
+
+    it("rejects second out of range", () => {
+      expect(validatePrimitive("10:30:99", el)).toHaveLength(1);
+    });
+
+    it("accepts midnight", () => {
+      expect(validatePrimitive("00:00:00", el)).toHaveLength(0);
+    });
+
+    it("accepts end of day", () => {
+      expect(validatePrimitive("23:59:59", el)).toHaveLength(0);
+    });
   });
 
   describe("positiveInt type", () => {
@@ -365,8 +397,16 @@ describe("validatePrimitive", () => {
       expect(validatePrimitive("SGVsbG8gV29ybGQ=", el)).toHaveLength(0);
     });
 
+    it("accepts empty base64", () => {
+      expect(validatePrimitive("", el)).toHaveLength(0);
+    });
+
     it("rejects non-string", () => {
       expect(validatePrimitive(123, el)).toHaveLength(1);
+    });
+
+    it("rejects invalid base64 characters", () => {
+      expect(validatePrimitive("not-base64!!!", el)).toHaveLength(1);
     });
   });
 
@@ -380,6 +420,14 @@ describe("validatePrimitive", () => {
     it("rejects non-string", () => {
       expect(validatePrimitive(123, el)).toHaveLength(1);
     });
+
+    it("rejects OID without dot separator", () => {
+      expect(validatePrimitive("not-an-oid", el)).toHaveLength(1);
+    });
+
+    it("rejects OID with leading dot", () => {
+      expect(validatePrimitive(".2.16.840", el)).toHaveLength(1);
+    });
   });
 
   describe("uuid type", () => {
@@ -389,8 +437,16 @@ describe("validatePrimitive", () => {
       expect(validatePrimitive("urn:uuid:12345678-1234-1234-1234-123456789012", el)).toHaveLength(0);
     });
 
+    it("accepts bare UUID", () => {
+      expect(validatePrimitive("12345678-1234-1234-1234-123456789012", el)).toHaveLength(0);
+    });
+
     it("rejects non-string", () => {
       expect(validatePrimitive(123, el)).toHaveLength(1);
+    });
+
+    it("rejects invalid UUID format", () => {
+      expect(validatePrimitive("nope", el)).toHaveLength(1);
     });
   });
 

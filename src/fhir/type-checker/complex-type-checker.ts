@@ -64,6 +64,42 @@ export function checkFixedValue(
     return [];
   }
 
+  if (element.fixedInteger !== undefined) {
+    if (value !== element.fixedInteger) {
+      return [{
+        severity: "error",
+        code: "fixed-value",
+        diagnostics: `Expected fixed value ${element.fixedInteger}, got ${value}`,
+        location: element.path,
+      }];
+    }
+    return [];
+  }
+
+  if (element.fixedDecimal !== undefined) {
+    if (value !== element.fixedDecimal) {
+      return [{
+        severity: "error",
+        code: "fixed-value",
+        diagnostics: `Expected fixed value ${element.fixedDecimal}, got ${value}`,
+        location: element.path,
+      }];
+    }
+    return [];
+  }
+
+  if (element.fixedUrl !== undefined) {
+    if (value !== element.fixedUrl) {
+      return [{
+        severity: "error",
+        code: "fixed-value",
+        diagnostics: `Expected fixed value "${element.fixedUrl}", got "${value}"`,
+        location: element.path,
+      }];
+    }
+    return [];
+  }
+
   return [];
 }
 

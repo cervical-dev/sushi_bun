@@ -3,7 +3,7 @@ export type TokenType =
   | "dot" | "comma" | "colon" | "pipe" | "lparen" | "rparen" | "lbracket" | "rbracket"
   | "equal" | "not-equal" | "greater" | "less" | "greater-equal" | "less-equal"
   | "plus" | "minus" | "star" | "slash"
-  | "and" | "or" | "not" | "implies" | "div" | "mod"
+  | "and" | "or" | "not" | "implies" | "div" | "mod" | "is"
   | "newline" | "eof";
 
 export interface Token {
@@ -18,6 +18,7 @@ const KEYWORDS = new Map<string, TokenType>([
   ["implies", "implies"],
   ["div", "div"],
   ["mod", "mod"],
+  ["is", "is"],
   ["true", "boolean"],
   ["false", "boolean"],
 ]);
@@ -54,8 +55,7 @@ export function tokenize(input: string): Token[] {
         pos++;
       }
       if (pos >= input.length) {
-        tokens.push({ type: "string", value: str });
-        break;
+        throw new Error(`Unterminated string starting at position ${start}`);
       }
       pos++;
       tokens.push({ type: "string", value: str });
@@ -100,24 +100,28 @@ export function tokenize(input: string): Token[] {
     }
 
     if (ch === "-" && pos + 1 < input.length && input[pos + 1]! >= "0" && input[pos + 1]! <= "9") {
-      pos++;
-      let num = "-";
-      while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") {
-        num += input[pos];
+      const prevToken = tokens.length > 0 ? tokens[tokens.length - 1] : undefined;
+      const isUnaryContext = !prevToken || ["operator", "minus", "plus", "star", "slash", "lparen", "comma", "lbracket", "equal", "not-equal", "greater", "less", "greater-equal", "less-equal", "and", "or", "not", "implies", "div", "mod"].includes(prevToken.type);
+      if (isUnaryContext) {
         pos++;
-      }
-      if (pos < input.length && input[pos] === ".") {
-        num += ".";
-        pos++;
+        let num = "-";
         while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") {
           num += input[pos];
           pos++;
         }
-        tokens.push({ type: "decimal", value: parseFloat(num) });
-      } else {
-        tokens.push({ type: "integer", value: parseInt(num, 10) });
+        if (pos < input.length && input[pos] === ".") {
+          num += ".";
+          pos++;
+          while (pos < input.length && input[pos]! >= "0" && input[pos]! <= "9") {
+            num += input[pos];
+            pos++;
+          }
+          tokens.push({ type: "decimal", value: parseFloat(num) });
+        } else {
+          tokens.push({ type: "integer", value: parseInt(num, 10) });
+        }
+        continue;
       }
-      continue;
     }
 
     if ((ch >= "a" && ch <= "z") || (ch >= "A" && ch <= "Z") || ch === "_" || ch === "$") {

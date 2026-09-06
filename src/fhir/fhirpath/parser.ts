@@ -67,6 +67,10 @@ class Parser {
 
   parse(): AstNode {
     const expr = this.parseImplies();
+    if (this.pos < this.tokens.length) {
+      const next = this.tokens[this.pos]!;
+      throw new Error(`Unexpected trailing token: ${next.type} (${next.value})`);
+    }
     return expr;
   }
 
@@ -154,7 +158,16 @@ class Parser {
     let node = this.parsePrimary();
 
     while (true) {
-      if (this.peek().type === "dot") {
+      if (this.peek().type === "is") {
+        this.advance();
+        const typeName = this.peek();
+        if (typeName.type !== "identifier") {
+          throw new Error(`Expected type name after 'is', got ${typeName.type}`);
+        }
+        this.advance();
+        const target = node;
+        node = { type: "function", name: "is", target, arguments: [{ type: "identifier", name: typeName.value as string }] };
+      } else if (this.peek().type === "dot") {
         this.advance();
         if (this.peek().type === "identifier") {
           const name = (this.advance() as Token).value as string;

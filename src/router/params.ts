@@ -22,39 +22,50 @@ export function parseSearchParams(
     const paramConfig = searchParams.get(param);
     if (!paramConfig) continue;
 
-    const parsed = parseValue(value, paramConfig.type);
+    const parsedValues = parseValue(value, paramConfig.type);
 
-    filters.push({
-      parameter: param,
-      prefix: parsed.prefix,
-      value: parsed.value,
-      modifier,
-    });
+    for (const parsed of parsedValues) {
+      filters.push({
+        parameter: param,
+        prefix: parsed.prefix,
+        value: parsed.value,
+        modifier,
+      });
+    }
   }
 
   return filters;
 }
 
-function parseValue(value: string, type: string): { prefix?: string; value: string } {
+function parseValue(value: string, type: string): Array<{ prefix?: string; value: string }> {
   if (type === "string" || type === "uri") {
-    return { value };
+    if (value.includes(",")) {
+      return value.split(",").map(v => ({ value: v.trim() }));
+    }
+    return [{ value }];
   }
 
   if (type === "token") {
-    return { value };
+    if (value.includes(",")) {
+      return value.split(",").map(v => ({ value: v.trim() }));
+    }
+    return [{ value }];
   }
 
   if (type === "date" || type === "number" || type === "quantity") {
     const prefixMatch = value.match(/^(eq|ne|lt|gt|le|ge|sa|eb)(.+)$/);
     if (prefixMatch) {
-      return { prefix: prefixMatch[1], value: prefixMatch[2]! };
+      return [{ prefix: prefixMatch[1], value: prefixMatch[2]! }];
     }
-    return { prefix: "eq", value };
+    return [{ prefix: "eq", value }];
   }
 
   if (type === "reference") {
-    return { value };
+    if (value.includes(",")) {
+      return value.split(",").map(v => ({ value: v.trim() }));
+    }
+    return [{ value }];
   }
 
-  return { value };
+  return [{ value }];
 }

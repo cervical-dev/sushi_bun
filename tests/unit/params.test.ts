@@ -47,6 +47,27 @@ describe("parseSearchParams", () => {
     expect(filters.length).toBe(1);
     expect(filters[0]!.modifier).toBe("contains");
   });
+
+  it("splits comma-separated values into multiple filters", () => {
+    const filters = parseSearchParams("name=Smith,Jones", searchParams);
+    expect(filters.length).toBe(2);
+    expect(filters[0]!.value).toBe("Smith");
+    expect(filters[1]!.value).toBe("Jones");
+  });
+
+  it("parses sa prefix for date", () => {
+    const filters = parseSearchParams("birthdate=sa2020-01-01", searchParams);
+    expect(filters.length).toBe(1);
+    expect(filters[0]!.prefix).toBe("sa");
+    expect(filters[0]!.value).toBe("2020-01-01");
+  });
+
+  it("parses eb prefix for date", () => {
+    const filters = parseSearchParams("birthdate=eb2020-01-01", searchParams);
+    expect(filters.length).toBe(1);
+    expect(filters[0]!.prefix).toBe("eb");
+    expect(filters[0]!.value).toBe("2020-01-01");
+  });
 });
 
 describe("sqliteFilterTranslator", () => {
@@ -77,5 +98,19 @@ describe("sqliteFilterTranslator", () => {
     expect(sqlFilters.length).toBe(1);
     expect(sqlFilters[0]!.op).toBe(">=");
     expect(sqlFilters[0]!.value).toBe("2000-01-01");
+  });
+
+  it("converts sa prefix to greater-than operator", () => {
+    const filters = parseSearchParams("birthdate=sa2020-01-01", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.op).toBe(">");
+  });
+
+  it("converts eb prefix to less-than operator", () => {
+    const filters = parseSearchParams("birthdate=eb2020-01-01", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.op).toBe("<");
   });
 });

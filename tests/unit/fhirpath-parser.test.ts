@@ -216,5 +216,13 @@ describe("FHIRPath Parser", () => {
     it("throws on unmatched parentheses", () => {
       expect(() => parse("(gender = 'male'")).toThrow();
     });
+
+    it("throws on trailing tokens", () => {
+      expect(() => parse("1 2")).toThrow();
+    });
+
+    it("throws on extra tokens after expression", () => {
+      expect(() => parse("gender = 'male' extra")).toThrow();
+    });
   });
 });

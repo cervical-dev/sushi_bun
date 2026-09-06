@@ -44,6 +44,45 @@ describe("FHIRPath Lexer", () => {
       expect(tokens).toEqual([{ type: "integer", value: -7 }]);
     });
 
+    it("tokenizes subtraction as separate tokens", () => {
+      const tokens = tokenize("1-2");
+      expect(tokens).toEqual([
+        { type: "integer", value: 1 },
+        { type: "minus", value: "-" },
+        { type: "integer", value: 2 },
+      ]);
+    });
+
+    it("tokenizes negative number after operator", () => {
+      const tokens = tokenize("1 + -3");
+      expect(tokens).toEqual([
+        { type: "integer", value: 1 },
+        { type: "plus", value: "+" },
+        { type: "integer", value: -3 },
+      ]);
+    });
+
+    it("tokenizes negative number after left paren", () => {
+      const tokens = tokenize("(-5)");
+      expect(tokens).toEqual([
+        { type: "lparen", value: "(" },
+        { type: "integer", value: -5 },
+        { type: "rparen", value: ")" },
+      ]);
+    });
+
+    it("tokenizes negative number after comma", () => {
+      const tokens = tokenize("f(-1, -2)");
+      expect(tokens).toEqual([
+        { type: "identifier", value: "f" },
+        { type: "lparen", value: "(" },
+        { type: "integer", value: -1 },
+        { type: "comma", value: "," },
+        { type: "integer", value: -2 },
+        { type: "rparen", value: ")" },
+      ]);
+    });
+
     it("tokenizes decimal literal", () => {
       const tokens = tokenize("3.14");
       expect(tokens).toEqual([{ type: "decimal", value: 3.14 }]);
@@ -174,9 +213,8 @@ describe("FHIRPath Lexer", () => {
   });
 
   describe("error handling", () => {
-    it("handles unclosed string by returning partial string", () => {
-      const tokens = tokenize("'unclosed");
-      expect(tokens).toEqual([{ type: "string", value: "unclosed" }]);
+    it("throws on unterminated string", () => {
+      expect(() => tokenize("'unclosed")).toThrow("Unterminated string");
     });
 
     it("handles unknown characters by skipping them", () => {

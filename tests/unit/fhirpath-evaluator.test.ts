@@ -165,6 +165,69 @@ describe("FHIRPath Evaluator", () => {
     });
   });
 
+  describe("pipe union operator", () => {
+    it("evaluates union of two literals", () => {
+      const result = evalExpr("1 | 2", patient) as unknown[];
+      expect(result).toEqual([1, 2]);
+    });
+
+    it("evaluates union of property and literal", () => {
+      const result = evalExpr("gender | 'other'", patient) as unknown[];
+      expect(result).toEqual(["male", "other"]);
+    });
+
+    it("evaluates union of two collections", () => {
+      const result = evalExpr("identifier.value | telecom.value", patient) as unknown[];
+      expect(result).toEqual(["12345", "INS1", "555-1234", "john@example.com"]);
+    });
+  });
+
+  describe("is operator", () => {
+    it("returns true when value matches type", () => {
+      expect(evalExpr("gender is String", patient)).toBe(true);
+    });
+
+    it("returns false when value does not match type", () => {
+      expect(evalExpr("active is String", patient)).toBe(false);
+    });
+
+    it("returns true for Integer type check", () => {
+      expect(evalExpr("identifier.count() is Integer", patient)).toBe(true);
+    });
+
+    it("returns true for Decimal type check", () => {
+      expect(evalExpr("identifier.count() is Decimal", patient)).toBe(true);
+    });
+
+    it("returns true for Boolean type check", () => {
+      expect(evalExpr("active is Boolean", patient)).toBe(true);
+    });
+  });
+
+  describe("union function", () => {
+    it("combines collections", () => {
+      const result = evalExpr("x.union(y)", { x: [1, 2], y: [3, 4] }) as unknown[];
+      expect(result).toEqual([1, 2, 3, 4]);
+    });
+
+    it("deduplicates values", () => {
+      const result = evalExpr("x.union(y)", { x: [1, 2], y: [2, 3] }) as unknown[];
+      expect(result).toEqual([1, 2, 3]);
+    });
+  });
+
+  describe("contains function on collections", () => {
+    it("returns true when collection contains value", () => {
+      const result = evalExpr("name.contains('oh')", { name: ["John", "Johnny"] });
+      expect(result).toBe(true);
+    });
+
+    it("returns false when collection does not contain value", () => {
+      const result = evalExpr("name.contains('xyz')", { name: ["John", "Johnny"] });
+      expect(result).toBe(false);
+    });
+  });
+
   describe("arithmetic", () => {
     it("evaluates addition", () => {
       expect(evalExpr("1 + 2", patient)).toBe(3);
@@ -180,6 +243,10 @@ describe("FHIRPath Evaluator", () => {
 
     it("evaluates division", () => {
       expect(evalExpr("10 / 2", patient)).toBe(5);
+    });
+
+    it("evaluates subtraction of adjacent digits", () => {
+      expect(evalExpr("1 - 2", patient)).toBe(-1);
     });
   });
 

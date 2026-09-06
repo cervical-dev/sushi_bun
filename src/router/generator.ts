@@ -67,7 +67,7 @@ export function buildRoutes(
       routes[`/${resourceType}/:id`] = instanceHandlers;
     }
 
-    if (resourceConfig.interactions.has("history-instance") || resourceConfig.interactions.has("read")) {
+    if (resourceConfig.interactions.has("history-instance")) {
       routes[`/${resourceType}/:id/_history/:vid`] = {
         GET: (req) => handlers.handleRead!(req, resourceConfig),
       };

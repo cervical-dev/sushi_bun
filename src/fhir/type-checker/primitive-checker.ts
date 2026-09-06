@@ -11,7 +11,11 @@ function isInteger(n: number): boolean {
 }
 
 function matchesDate(s: string): boolean {
-  return /^\d{4}(-\d{2}(-\d{2})?)?$/.test(s);
+  if (!/^\d{4}(-\d{2}(-\d{2})?)?$/.test(s)) return false;
+  const parts = s.split("-");
+  if (parts[1] && (parseInt(parts[1]) < 1 || parseInt(parts[1]) > 12)) return false;
+  if (parts[2] && (parseInt(parts[2]) < 1 || parseInt(parts[2]) > 31)) return false;
+  return true;
 }
 
 function matchesDateTime(s: string): boolean {
@@ -23,7 +27,17 @@ function matchesInstant(s: string): boolean {
 }
 
 function matchesTime(s: string): boolean {
-  return /^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s);
+  if (!/^\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/.test(s)) return false;
+  const parts = s.split(":");
+  const hours = parseInt(parts[0]);
+  const minutes = parseInt(parts[1]);
+  if (hours > 23 || minutes > 59) return false;
+  if (parts[2]) {
+    const secParts = parts[2].split(".");
+    const seconds = parseInt(secParts[0]);
+    if (seconds > 59) return false;
+  }
+  return true;
 }
 
 function matchesId(s: string): boolean {
@@ -135,11 +149,32 @@ export function validatePrimitive(
       return [];
     }
 
-    case "base64Binary":
-    case "oid":
+    case "base64Binary": {
+      if (typeof value !== "string") {
+        return [{ severity: "error", code: "invalid-type", diagnostics: `Expected ${expected}, got ${jsonType(value)}`, location: element.path }];
+      }
+      if (value !== "" && !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) {
+        return [{ severity: "error", code: "invalid-type", diagnostics: `Expected valid base64 encoding, got "${value}"`, location: element.path }];
+      }
+      return [];
+    }
+
+    case "oid": {
+      if (typeof value !== "string") {
+        return [{ severity: "error", code: "invalid-type", diagnostics: `Expected ${expected}, got ${jsonType(value)}`, location: element.path }];
+      }
+      if (!/^\d+(\.\d+)+$/.test(value)) {
+        return [{ severity: "error", code: "invalid-type", diagnostics: `Expected valid OID (digits separated by dots), got "${value}"`, location: element.path }];
+      }
+      return [];
+    }
+
     case "uuid": {
       if (typeof value !== "string") {
         return [{ severity: "error", code: "invalid-type", diagnostics: `Expected ${expected}, got ${jsonType(value)}`, location: element.path }];
+      }
+      if (!/^(urn:uuid:)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+        return [{ severity: "error", code: "invalid-type", diagnostics: `Expected valid UUID, got "${value}"`, location: element.path }];
       }
       return [];
     }
