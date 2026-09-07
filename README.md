@@ -41,7 +41,7 @@ The server starts at `http://localhost:3000`. Hit `/metadata` to see what it can
 ```
 
 1. You write `.fsh` files defining resources, interactions, search parameters, and operations
-2. `sushi build` compiles them into FHIR JSON (CapabilityStatement, StructureDefinitions, etc.)
+2. `sushi build` compiles them into FHIR JSON (CapabilityStatement, StructureDefinitions, SearchParameters, etc.)
 3. At startup, the server parses the CapabilityStatement into a `RouteConfig` and loads StructureDefinitions for validation
 4. Routes are generated dynamically. Only endpoints you declared exist.
 5. SQLite stores resources as JSON blobs with soft-delete and version history
@@ -64,10 +64,9 @@ Usage: #definition
 * rest.resource[+].type = #Patient
 * rest.resource[=].interaction[+].code = #read
 * rest.resource[=].interaction[+].code = #create
-* rest.resource[=].interaction[+].code = #update
-* rest.resource[=].interaction[+].code = #delete
+* rest.resource[=].interaction[+].code = #patch
 * rest.resource[=].interaction[+].code = #search-type
-* rest.resource[=].searchParam[+].name = "name"
+* rest.resource[=].searchParam[+].name = "family"
 * rest.resource[=].searchParam[=].type = #string
 
 // Observation — read only
@@ -75,6 +74,8 @@ Usage: #definition
 * rest.resource[=].interaction[+].code = #read
 * rest.resource[=].interaction[+].code = #search-type
 ```
+
+Search parameters are data-driven: each one links to a `SearchParameter` resource (also written in FSH, in `input/fsh/search-parameters/`) whose FHIRPath `expression` the server resolves into a query automatically. No SQL mapping code required.
 
 Change the FSH, rebuild, restart. The server adapts.
 
@@ -86,12 +87,16 @@ Once running, the server supports standard FHIR R5 REST interactions:
 |--------|----------|-------------|
 | `GET` | `/metadata` | CapabilityStatement |
 | `GET` | `/:type` | Search |
+| `POST` | `/:type/_search` | Search |
 | `POST` | `/:type` | Create |
 | `GET` | `/:type/:id` | Read |
 | `PUT` | `/:type/:id` | Update |
+| `PATCH` | `/:type/:id` | Update (JSON Patch) |
 | `DELETE` | `/:type/:id` | Delete |
 | `GET` | `/:type/:id/_history` | Version history |
 | `GET` | `/:type/:id/_history/:vid` | Read specific version |
+| `GET` | `/:type/_history` | Type-level history |
+| `GET` | `/_history` | System-level history |
 | `POST` | `/` | Batch / Transaction |
 | `POST` | `/:type/$everything` | Operation (if declared) |
 | `POST` | `/:type/$validate` | Operation (if declared) |
@@ -140,19 +145,7 @@ Transactions execute atomically (all-or-nothing). Batches run entries independen
 
 ## Validation
 
-The `$validate` operation provides explicit validation outside of create/update/batch flows.
-
-The validator checks:
-
-- **Primitive types** — format validation for all 17 FHIR primitive types (string, integer, date, dateTime, uri, code, etc.)
-- **Cardinality** — min/max constraints on all elements
-- **Choice types** — ensures only one `[x]` variant is present
-- **Fixed values** — elements with fixed values must match exactly
-- **MustSupport** — required mustSupport elements must be present
-- **FHIRPath constraints** — evaluates `constraint[].expression` on elements
-- **Extensions** — validates structure (required `url`, absolute URLs, nesting depth)
-- **Slicing** — discriminator-based slice validation, closed/open rules, per-slice cardinality
-- **Terminology bindings** — code validation against ValueSet bindings (required/extensible/preferred)
+The `$validate` operation provides explicit validation outside of create/update/batch flows. The validator checks primitive types, cardinality, choice types, fixed values, MustSupport elements, FHIRPath constraints, extension structure, slicing, and terminology bindings.
 
 ```bash
 # Explicit validation via $validate
@@ -161,58 +154,17 @@ curl -X POST http://localhost:3000/Patient/$validate \
   -d '{"resourceType":"Patient","name":[{"family":"Smith"}]}'
 ```
 
-
 ## Testing
 
 ```bash
 bun test
 ```
 
-## Project Structure
-
-```
-sushi_bun/
-├── sushi-config.yaml                # Sushi config (FSHOnly: true, R5)
-├── input/fsh/
-│   ├── capability.fsh               # Server contract (resources, interactions, ops)
-│   └── profiles/
-│       └── patient.fsh              # MyPatient profile (strict validation)
-├── fsh-generated/resources/         # Sushi output (gitignored)
-├── src/
-│   ├── index.ts                     # Entry point
-│   ├── server.ts                    # Bun.serve() with dynamic routes
-│   ├── db.ts                        # SQLite setup
-│   ├── fhir/
-│   │   ├── types.ts                 # FHIR type definitions
-│   │   ├── capability.ts            # CapabilityStatement parser
-│   │   ├── validator.ts             # Core validation engine
-│   │   ├── validator-loader.ts      # StructureDefinition loader + registry
-│   │   ├── bundle-validator.ts      # Bundle-specific validation
-│   │   ├── extension/               # Extension structure validation
-│   │   ├── fhirpath/                # FHIRPath lexer, parser, evaluator
-│   │   ├── schema/                  # StructureDefinition merging
-│   │   ├── slicing/                 # Element slicing validation
-│   │   ├── terminology/             # ValueSet/CodeSystem binding checks
-│   │   └── type-checker/            # Primitive, cardinality, choice type checks
-│   ├── router/
-│   │   ├── generator.ts             # RouteConfig → Bun routes
-│   │   └── params.ts                # FHIR search param parsing
-│   ├── handlers/                    # FHIR interaction handlers
-│   └── store/
-│       ├── types.ts                 # ResourceStore, StorageProvider interfaces
-│       ├── resource-store.ts        # SQLite CRUD + versioning
-│       └── sqlite-provider.ts       # Default SQLite provider
-└── tests/                           # Bun test suite
-```
+The suite covers unit, API, and property-based (fast-check fuzz) tests.
 
 ## Dependencies
 
-**Zero runtime dependencies.** The entire server runs on:
-
-- `bun` — runtime, HTTP server, and SQLite
-- `fsh-sushi` — dev only, compiles FSH to JSON
-- `fast-check` — dev only, property-based testing
-- `@types/bun` — dev only, TypeScript types
+**Zero runtime dependencies.** Everything runs on `bun`; `fsh-sushi` and `fast-check` are dev-only.
 
 ## Configuration
 
@@ -236,60 +188,13 @@ sushi_bun/
 
 ### Add a new search parameter
 
-1. Add a `searchParam` block to the relevant resource in `capability.fsh`
-2. Add the JSON path mapping in `src/store/sqlite-provider.ts` (`getSqlForParam`)
+1. Add a `SearchParameter` instance in `input/fsh/search-parameters/` with a FHIRPath `expression`
+2. Reference it from the resource's `searchParam` block in `capability.fsh`
 3. Rebuild and restart
 
-### Bring your own handlers
+### Bring your own handlers or storage
 
-Override any FHIR interaction by passing a `handlers` object to `createServer`. Only override what you need. The rest use the built-in defaults.
-
-```typescript
-import { defaultHandlers } from "./src/handlers/default.ts";
-
-const baseHandlers = await defaultHandlers(); // default SQLite store
-const { server } = await createServer({
-  capabilityPath: "capability.json",
-  handlers: {
-    ...baseHandlers,
-    handleSearch(req, config) {
-      // custom search logic — store is already bound
-    },
-  },
-});
-```
-
-See `src/handlers/` for the default implementations.
-
-### Bring your own storage
-
-Implement the `ResourceStore` interface for your backend and a `FilterTranslator` to convert FHIR search parameters to your query format.
-
-```typescript
-import type { ResourceStore, StorageProvider } from "./src/store/types.ts";
-
-const store: ResourceStore = {
-  create(resourceType, resource) { /* ... */ },
-  read(resourceType, id) { /* ... */ },
-  readVersion(resourceType, id, versionId) { /* ... */ },
-  update(resourceType, id, resource, expectedVersion?) { /* ... */ },
-  softDelete(resourceType, id) { /* ... */ },
-  listVersions(resourceType, id) { /* ... */ },
-  search(resourceType, filters, offset?, limit?) { /* ... */ },
-  count(resourceType, filters) { /* ... */ },
-  transaction<T>(fn) { return fn(); },
-};
-
-const provider: StorageProvider = {
-  createStore() { return store; },
-  translateFilters(filters, searchParams) { /* ... */ },
-};
-
-const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
-const { server } = await createServer({ capabilityPath: "capability.json", handlers });
-```
-
-See `src/store/sqlite-provider.ts` for the reference implementation.
+Pass a `handlers` object to `createServer` to override any FHIR interaction; the rest use the built-in defaults (see `src/handlers/types.ts`). To use a different backend, implement the `ResourceStore` and `StorageProvider` interfaces in `src/store/types.ts` — the SQLite provider is the reference implementation.
 
 ## License
 
