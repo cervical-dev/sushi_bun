@@ -16,7 +16,9 @@ Usage: #definition
 * rest.resource[=].interaction[+].code = #create
 * rest.resource[=].interaction[+].code = #update
 * rest.resource[=].interaction[+].code = #delete
+* rest.resource[=].interaction[+].code = #patch
 * rest.resource[=].interaction[+].code = #history-instance
+* rest.resource[=].interaction[+].code = #history-type
 * rest.resource[=].versioning = #versioned-update
 * rest.resource[=].readHistory = true
 * rest.resource[=].updateCreate = true
@@ -73,3 +75,4 @@ Usage: #definition
 // System-level interactions
 * rest.interaction[+].code = #transaction
 * rest.interaction[+].code = #batch
+* rest.interaction[+].code = #history-system
