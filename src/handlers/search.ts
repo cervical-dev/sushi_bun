@@ -2,6 +2,7 @@ import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/ty
 import type { ResourceStore, FilterTranslator, SqlFilter } from "../store/types.ts";
 import { parseSearchParams } from "../router/params.ts";
 import { createOperationOutcome } from "./metadata.ts";
+import { resolveContext } from "./request-context.ts";
 
 export function handleSearch(
   req: Request,
@@ -9,9 +10,9 @@ export function handleSearch(
   store: ResourceStore,
   translateFilters: FilterTranslator
 ): Response {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
+  const resolved = resolveContext(req, config, { interaction: "search-type" });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, url } = resolved.ctx;
 
   const countParam = url.searchParams.get("_count");
   const offsetParam = url.searchParams.get("_offset");

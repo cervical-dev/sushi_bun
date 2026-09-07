@@ -1,21 +1,17 @@
 import type { ResourceConfig } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
+import { resolveContext } from "./request-context.ts";
 
 export function handleDelete(req: Request, config: ResourceConfig, store: ResourceStore): Response {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const id = pathParts[1]!;
+  const resolved = resolveContext(req, config, { interaction: "delete", expectId: true });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, id } = resolved.ctx;
 
-  if (!config.interactions.has("delete")) {
-    return createOperationOutcome("error", "not-supported", `Delete not supported for ${resourceType}`, 405);
-  }
-
-  const deleted = store.softDelete(resourceType, id);
+  const deleted = store.softDelete(resourceType, id!);
   if (!deleted) {
-    if (store.exists(resourceType, id)) {
-      const versions = store.listVersions(resourceType, id);
+    if (store.exists(resourceType, id!)) {
+      const versions = store.listVersions(resourceType, id!);
       const versionId = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
       return new Response(null, {
         status: 204,
@@ -27,7 +23,7 @@ export function handleDelete(req: Request, config: ResourceConfig, store: Resour
     return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
   }
 
-  const versions = store.listVersions(resourceType, id);
+  const versions = store.listVersions(resourceType, id!);
   const versionId = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
 
   return new Response(null, {

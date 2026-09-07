@@ -1,9 +1,7 @@
 import type { ResourceConfig, FhirResource } from "../fhir/types.ts";
-import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
-import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
+import { resolveContext, parseAndValidateBody, respondWithResource } from "./request-context.ts";
 
 export async function handleCreate(
   req: Request,
@@ -11,55 +9,18 @@ export async function handleCreate(
   store: ResourceStore,
   validators?: ValidatorRegistry
 ): Promise<Response> {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const baseUrl = `${url.protocol}//${url.host}`;
+  const resolved = resolveContext(req, config, { interaction: "create" });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, baseUrl } = resolved.ctx;
 
-  if (!config.interactions.has("create")) {
-    return createOperationOutcome("error", "not-supported", `Create not supported for ${resourceType}`, 405);
-  }
-
-  const contentType = req.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("application/fhir+json") && !contentType.includes("application/json")) {
-    return createOperationOutcome("error", "unsupported", "Content-Type must be application/fhir+json", 415);
-  }
-
-  let body: FhirResource;
-  try {
-    body = (await req.json()) as FhirResource;
-  } catch {
-    return createOperationOutcome("error", "invalid", "Request body is not valid JSON");
-  }
-
-  if (body.resourceType !== resourceType) {
-    return createOperationOutcome(
-      "error",
-      "invalid",
-      `Resource type in body (${body.resourceType}) does not match URL (${resourceType})`
-    );
-  }
-
-  if (validators) {
-    const profileUrl = getProfileUrl(body as Record<string, unknown>);
-    const sd = validators.getValidator(resourceType, profileUrl);
-    if (sd) {
-      const validation = validateResource(body as Record<string, unknown>, sd);
-      if (!validation.valid) {
-        return createOperationOutcomeFromIssues(validation.issues, 422);
-      }
-    }
-  }
+  const parsed = await parseAndValidateBody(req, resolved.ctx, validators, {
+    contentTypes: ["application/fhir+json", "application/json"],
+    validateAs: "resource",
+  });
+  if (!parsed.ok) return parsed.outcome;
+  const body = parsed.body as FhirResource;
 
   const resource = store.create(resourceType, body);
 
-  return Response.json(resource, {
-    status: 201,
-    headers: {
-      "Content-Type": "application/fhir+json",
-      Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
-      ETag: `W/"${resource.meta?.versionId}"`,
-      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
-    },
-  });
+  return respondWithResource(resource, baseUrl, 201);
 }

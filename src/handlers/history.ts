@@ -1,6 +1,7 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
 import type { ResourceStore, TypeHistoryRecord } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
+import { resolveContext } from "./request-context.ts";
 
 function buildHistoryBundle(url: URL, entries: BundleEntry[], selfUrl: string): Response {
   const baseUrl = `${url.protocol}//${url.host}`;
@@ -40,22 +41,17 @@ function historyRecordToEntry(v: TypeHistoryRecord): BundleEntry {
 }
 
 export function handleHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const id = pathParts[1]!;
+  const resolved = resolveContext(req, config, { interaction: "history-instance", expectId: true });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, id, url } = resolved.ctx;
 
-  if (!config.interactions.has("history-instance")) {
-    return createOperationOutcome("error", "not-supported", `History not supported for ${resourceType}`, 405);
-  }
-
-  const versions = store.listVersions(resourceType, id);
+  const versions = store.listVersions(resourceType, id!);
   if (versions.length === 0) {
     return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
   }
 
   const entries: BundleEntry[] = versions.map((v) => {
-    const resource = store.readVersion(resourceType, id, v.version_id);
+    const resource = store.readVersion(resourceType, id!, v.version_id);
     return {
       fullUrl: `${resourceType}/${id}/_history/${v.version_id}`,
       resource: resource ?? undefined,
@@ -75,14 +71,10 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
 }
 
 export function handleTypeHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
+  const resolved = resolveContext(req, config, { interaction: "history-type" });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, url } = resolved.ctx;
   const since = url.searchParams.get("_since") ?? undefined;
-
-  if (!config.interactions.has("history-type")) {
-    return createOperationOutcome("error", "not-supported", `Type history not supported for ${resourceType}`, 405);
-  }
 
   const records = store.listTypeHistory(resourceType, since);
   const entries = records.map(historyRecordToEntry);

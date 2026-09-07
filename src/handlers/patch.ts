@@ -5,6 +5,7 @@ import { validateResource } from "../fhir/validator.ts";
 import { getProfileUrl } from "../fhir/types.ts";
 import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
 import { applyPatch, PatchError, type PatchOp } from "../fhir/patch.ts";
+import { resolveContext, parseAndValidateBody, respondWithResource } from "./request-context.ts";
 
 export async function handlePatch(
   req: Request,
@@ -12,50 +13,28 @@ export async function handlePatch(
   store: ResourceStore,
   validators?: ValidatorRegistry
 ): Promise<Response> {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const id = pathParts[1]!;
-  const baseUrl = `${url.protocol}//${url.host}`;
+  const resolved = resolveContext(req, config, { interaction: "patch", expectId: true });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, id, baseUrl } = resolved.ctx;
+  const resourceId = id!;
 
-  if (!config.interactions.has("patch")) {
-    return createOperationOutcome("error", "not-supported", `Patch not supported for ${resourceType}`, 405);
-  }
+  const parsed = await parseAndValidateBody(req, resolved.ctx, undefined, {
+    contentTypes: ["application/json-patch+json"],
+    validateAs: "patch-ops",
+    parseIfMatch: true,
+  });
+  if (!parsed.ok) return parsed.outcome;
+  const ops = parsed.body as PatchOp[];
+  const expectedVersion = parsed.expectedVersion;
 
-  const contentType = req.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("application/json-patch+json")) {
-    return createOperationOutcome("error", "unsupported", "Content-Type must be application/json-patch+json", 415);
-  }
-
-  let ops: PatchOp[];
-  try {
-    ops = (await req.json()) as PatchOp[];
-  } catch {
-    return createOperationOutcome("error", "invalid", "Request body is not valid JSON");
-  }
-
-  if (!Array.isArray(ops) || ops.length === 0) {
-    return createOperationOutcome("error", "invalid", "PATCH body must be a non-empty array of operations");
-  }
-
-  const existing = store.read(resourceType, id);
+  const existing = store.read(resourceType, resourceId);
   if (!existing) {
-    if (store.isDeleted(resourceType, id)) {
-      const versions = store.listVersions(resourceType, id);
+    if (store.isDeleted(resourceType, resourceId)) {
+      const versions = store.listVersions(resourceType, resourceId);
       const latestVersion = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
-      return createOperationOutcome("error", "deleted", `${resourceType}/${id} is deleted`, 410, `W/"${latestVersion}"`);
+      return createOperationOutcome("error", "deleted", `${resourceType}/${resourceId} is deleted`, 410, `W/"${latestVersion}"`);
     }
-    return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
-  }
-
-  let expectedVersion: number | undefined;
-  const ifMatch = req.headers.get("If-Match");
-  if (ifMatch) {
-    const versionMatch = ifMatch.match(/^W?\/?"(\d+)"$/);
-    if (!versionMatch) {
-      return createOperationOutcome("error", "invalid", "If-Match header must be a weak ETag with version id");
-    }
-    expectedVersion = parseInt(versionMatch[1]!, 10);
+    return createOperationOutcome("error", "not-found", `${resourceType}/${resourceId} not found`, 404);
   }
 
   let patched: Record<string, unknown>;
@@ -88,7 +67,7 @@ export async function handlePatch(
 
   let resource: FhirResource;
   try {
-    resource = store.update(resourceType, id, { ...patched, id } as FhirResource, expectedVersion);
+    resource = store.update(resourceType, resourceId, { ...patched, id: resourceId } as FhirResource, expectedVersion);
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === "version-conflict") {
@@ -98,13 +77,5 @@ export async function handlePatch(
     return createOperationOutcome("error", "exception", "Internal server error", 500);
   }
 
-  return Response.json(resource, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/fhir+json",
-      Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
-      ETag: `W/"${resource.meta?.versionId}"`,
-      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
-    },
-  });
+  return respondWithResource(resource, baseUrl, 200);
 }

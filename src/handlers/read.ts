@@ -1,31 +1,29 @@
 import type { ResourceConfig } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./metadata.ts";
+import { resolveContext } from "./request-context.ts";
 
 export function handleRead(req: Request, config: ResourceConfig, store: ResourceStore): Response {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const id = pathParts[1]!;
-  const baseUrl = `${url.protocol}//${url.host}`;
+  const probeUrl = new URL(req.url);
+  const probeParts = probeUrl.pathname.split("/").filter(Boolean);
+  const isVread = probeParts.length >= 4 && probeParts[2] === "_history";
 
-  const vidStr = pathParts[3];
-  if (vidStr) {
-    if (!config.interactions.has("history-instance")) {
-      return createOperationOutcome("error", "not-supported", `History not supported for ${resourceType}`, 405);
-    }
+  if (isVread) {
+    const resolved = resolveContext(req, config, {
+      interaction: "history-instance",
+      expectId: true,
+      expectVid: true,
+    });
+    if (!resolved.ok) return resolved.outcome;
+    const { resourceType, id, vid, baseUrl } = resolved.ctx;
+    const versionId = vid!;
 
-    const versionId = parseInt(vidStr, 10);
-    if (isNaN(versionId)) {
-      return createOperationOutcome("error", "invalid", "Invalid version id");
-    }
-
-    const resource = store.readVersion(resourceType, id, versionId);
+    const resource = store.readVersion(resourceType, id!, versionId);
     if (!resource) {
       return createOperationOutcome("error", "not-found", `Version ${versionId} of ${resourceType}/${id} not found`, 404);
     }
 
-    const current = store.currentVersion(resourceType, id);
+    const current = store.currentVersion(resourceType, id!);
     if (current && current.isDeleted && current.versionId === versionId) {
       const etag = `W/"${versionId}"`;
       return createOperationOutcome("error", "deleted", `${resourceType}/${id} is deleted`, 410, etag);
@@ -45,14 +43,14 @@ export function handleRead(req: Request, config: ResourceConfig, store: Resource
     });
   }
 
-  if (!config.interactions.has("read")) {
-    return createOperationOutcome("error", "not-supported", `Read not supported for ${resourceType}`, 405);
-  }
+  const resolved = resolveContext(req, config, { interaction: "read", expectId: true });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, id } = resolved.ctx;
 
-  const resource = store.read(resourceType, id);
+  const resource = store.read(resourceType, id!);
   if (!resource) {
-    if (store.isDeleted(resourceType, id)) {
-      const versions = store.listVersions(resourceType, id);
+    if (store.isDeleted(resourceType, id!)) {
+      const versions = store.listVersions(resourceType, id!);
       const latestVersion = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
       const etag = `W/"${latestVersion}"`;
       return createOperationOutcome("error", "deleted", `${resourceType}/${id} is deleted`, 410, etag);

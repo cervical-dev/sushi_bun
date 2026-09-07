@@ -1,9 +1,8 @@
 import type { ResourceConfig, FhirResource } from "../fhir/types.ts";
-import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
-import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
+import { createOperationOutcome } from "./metadata.ts";
+import { resolveContext, parseAndValidateBody, respondWithResource } from "./request-context.ts";
 
 export async function handleUpdate(
   req: Request,
@@ -11,84 +10,32 @@ export async function handleUpdate(
   store: ResourceStore,
   validators?: ValidatorRegistry
 ): Promise<Response> {
-  const url = new URL(req.url);
-  const pathParts = url.pathname.split("/").filter(Boolean);
-  const resourceType = pathParts[0]!;
-  const id = pathParts[1]!;
-  const baseUrl = `${url.protocol}//${url.host}`;
+  const resolved = resolveContext(req, config, { interaction: "update", expectId: true });
+  if (!resolved.ok) return resolved.outcome;
+  const { resourceType, id, baseUrl } = resolved.ctx;
+  const resourceId = id!;
 
-  if (!config.interactions.has("update")) {
-    return createOperationOutcome("error", "not-supported", `Update not supported for ${resourceType}`, 405);
-  }
-
-  const contentType = req.headers.get("Content-Type") ?? "";
-  if (!contentType.includes("application/fhir+json") && !contentType.includes("application/json")) {
-    return createOperationOutcome("error", "unsupported", "Content-Type must be application/fhir+json", 415);
-  }
-
-  let body: FhirResource;
-  try {
-    body = (await req.json()) as FhirResource;
-  } catch {
-    return createOperationOutcome("error", "invalid", "Request body is not valid JSON");
-  }
-
-  if (body.resourceType !== resourceType) {
-    return createOperationOutcome(
-      "error",
-      "invalid",
-      `Resource type in body (${body.resourceType}) does not match URL (${resourceType})`
-    );
-  }
-
-  if (body.id && body.id !== id) {
-    return createOperationOutcome(
-      "error",
-      "invalid",
-      `Resource id in body (${body.id}) does not match URL (${id})`
-    );
-  }
-
-  let expectedVersion: number | undefined;
-  const ifMatch = req.headers.get("If-Match");
-  if (ifMatch) {
-    const versionMatch = ifMatch.match(/^W?\/?"(\d+)"$/);
-    if (!versionMatch) {
-      return createOperationOutcome("error", "invalid", "If-Match header must be a weak ETag with version id");
-    }
-    expectedVersion = parseInt(versionMatch[1]!, 10);
-  }
-
-  if (validators) {
-    const profileUrl = getProfileUrl(body as Record<string, unknown>);
-    const sd = validators.getValidator(resourceType, profileUrl);
-    if (sd) {
-      const validation = validateResource({ ...body, id } as Record<string, unknown>, sd);
-      if (!validation.valid) {
-        return createOperationOutcomeFromIssues(validation.issues, 422);
-      }
-    }
-  }
+  const parsed = await parseAndValidateBody(req, resolved.ctx, validators, {
+    contentTypes: ["application/fhir+json", "application/json"],
+    validateAs: "resource",
+    checkIdMatch: true,
+    parseIfMatch: true,
+  });
+  if (!parsed.ok) return parsed.outcome;
+  const body = parsed.body as FhirResource;
+  const expectedVersion = parsed.expectedVersion;
 
   let resource: FhirResource;
   try {
-    resource = store.update(resourceType, id, { ...body, id }, expectedVersion);
+    resource = store.update(resourceType, resourceId, { ...body, id: resourceId }, expectedVersion);
   } catch (err) {
     if (err instanceof Error) {
       if (err.message === "not-found") {
         if (config.updateCreate) {
-          resource = store.create(resourceType, body, id);
-          return Response.json(resource, {
-            status: 201,
-            headers: {
-              "Content-Type": "application/fhir+json",
-              Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
-              ETag: `W/"${resource.meta?.versionId}"`,
-              "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
-            },
-          });
+          resource = store.create(resourceType, body, resourceId);
+          return respondWithResource(resource, baseUrl, 201);
         }
-        return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
+        return createOperationOutcome("error", "not-found", `${resourceType}/${resourceId} not found`, 404);
       }
       if (err.message === "version-conflict") {
         return createOperationOutcome("error", "conflict", "Version mismatch. Use correct If-Match header.", 412);
@@ -97,13 +44,5 @@ export async function handleUpdate(
     return createOperationOutcome("error", "exception", "Internal server error", 500);
   }
 
-  return Response.json(resource, {
-    status: 200,
-    headers: {
-      "Content-Type": "application/fhir+json",
-      Location: `${baseUrl}/${resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
-      ETag: `W/"${resource.meta?.versionId}"`,
-      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
-    },
-  });
+  return respondWithResource(resource, baseUrl, 200);
 }
