@@ -1,7 +1,7 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
 import type { ResourceStore, FilterTranslator, SqlFilter } from "../store/types.ts";
 import { parseSearchParams } from "../router/params.ts";
-import { createOperationOutcome } from "./metadata.ts";
+import { createOperationOutcome } from "./outcome.ts";
 import { resolveContext } from "./request-context.ts";
 
 export function handleSearch(

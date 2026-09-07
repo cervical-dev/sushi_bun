@@ -3,7 +3,8 @@ import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome } from "./metadata.ts";
+import { createOperationOutcome } from "./outcome.ts";
+import { etag, historyPath, deletedResponse } from "./request-context.ts";
 import { applyPatch, PatchError } from "../fhir/patch.ts";
 
 interface ValidatableEntry {
@@ -143,8 +144,8 @@ function executeEntry(
         resource: created,
         response: {
           status: "201",
-          location: `${resourceType}/${created.id}/_history/${created.meta?.versionId}`,
-          etag: `W/"${created.meta?.versionId}"`,
+          location: historyPath(resourceType, created.id!, created.meta?.versionId ?? 1),
+          etag: etag(created.meta?.versionId ?? 1),
         },
       };
     }
@@ -160,8 +161,8 @@ function executeEntry(
         resource: updated,
         response: {
           status: "200",
-          location: `${resourceType}/${updated.id}/_history/${updated.meta?.versionId}`,
-          etag: `W/"${updated.meta?.versionId}"`,
+          location: historyPath(resourceType, updated.id!, updated.meta?.versionId ?? 1),
+          etag: etag(updated.meta?.versionId ?? 1),
         },
       };
     }
@@ -180,7 +181,7 @@ function executeEntry(
         };
       }
       if (store.isDeleted(resourceType, id!)) {
-        return { response: { status: "410" } };
+        return { response: deletedResponse(store, resourceType, id!) };
       }
       return { response: { status: "404" } };
     }
@@ -188,7 +189,7 @@ function executeEntry(
       const existing = store.read(resourceType, id!);
       if (!existing) {
         if (store.isDeleted(resourceType, id!)) {
-          return { response: { status: "410" } };
+          return { response: deletedResponse(store, resourceType, id!) };
         }
         return { response: { status: "404" } };
       }
@@ -205,13 +206,14 @@ function executeEntry(
         return {
           fullUrl: `${resourceType}/${updated.id}`,
           resource: updated,
-          response: {
-            status: "200",
-            location: `${resourceType}/${updated.id}/_history/${updated.meta?.versionId}`,
-            etag: `W/"${updated.meta?.versionId}"`,
-          },
-        };
-      } catch (err) {
+        response: {
+          status: "200",
+          location: historyPath(resourceType, updated.id!, updated.meta?.versionId ?? 1),
+          etag: etag(updated.meta?.versionId ?? 1),
+        },
+      };
+    } catch (err) {
+
         if (err instanceof PatchError) {
           const code = err.message.includes("test failed") ? "precondition-failed" : "invalid";
           return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code, diagnostics: err.message }] } } };

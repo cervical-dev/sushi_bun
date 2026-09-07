@@ -1,7 +1,7 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
 import type { ResourceStore, TypeHistoryRecord } from "../store/types.ts";
-import { createOperationOutcome } from "./metadata.ts";
-import { resolveContext } from "./request-context.ts";
+import { createOperationOutcome } from "./outcome.ts";
+import { resolveContext, historyEntry } from "./request-context.ts";
 
 function buildHistoryBundle(url: URL, entries: BundleEntry[], selfUrl: string): Response {
   const baseUrl = `${url.protocol}//${url.host}`;
@@ -25,19 +25,13 @@ function historyRecordToEntry(v: TypeHistoryRecord): BundleEntry {
   const resource = JSON.parse(v.data);
   resource.id = v.id;
   resource.meta = { ...resource.meta, versionId: String(v.version_id), lastUpdated: v.last_updated };
-  return {
-    fullUrl: `${v.resource_type}/${v.id}/_history/${v.version_id}`,
+  return historyEntry({
+    resourceType: v.resource_type,
+    id: v.id,
+    versionId: v.version_id,
+    lastUpdated: v.last_updated,
     resource,
-    request: {
-      method: "GET",
-      url: `${v.resource_type}/${v.id}/_history/${v.version_id}`,
-    },
-    response: {
-      status: "200",
-      lastModified: v.last_updated,
-      etag: `W/"${v.version_id}"`,
-    },
-  };
+  });
 }
 
 export function handleHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
@@ -50,22 +44,15 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
     return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
   }
 
-  const entries: BundleEntry[] = versions.map((v) => {
-    const resource = store.readVersion(resourceType, id!, v.version_id);
-    return {
-      fullUrl: `${resourceType}/${id}/_history/${v.version_id}`,
-      resource: resource ?? undefined,
-      request: {
-        method: "GET",
-        url: `${resourceType}/${id}/_history/${v.version_id}`,
-      },
-      response: {
-        status: "200",
-        lastModified: v.last_updated,
-        etag: `W/"${v.version_id}"`,
-      },
-    };
-  });
+  const entries: BundleEntry[] = versions.map((v) =>
+    historyEntry({
+      resourceType,
+      id: id!,
+      versionId: v.version_id,
+      lastUpdated: v.last_updated,
+      resource: store.readVersion(resourceType, id!, v.version_id) ?? undefined,
+    })
+  );
 
   return buildHistoryBundle(url, entries, `/${resourceType}/${id}/_history`);
 }

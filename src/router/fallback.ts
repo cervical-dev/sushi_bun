@@ -1,4 +1,4 @@
-import { createOperationOutcome } from "../handlers/metadata.ts";
+import { createOperationOutcome } from "../handlers/outcome.ts";
 import { addStandardHeaders, isAcceptable, normalizeTrailingSlash } from "./middleware.ts";
 
 export function fallbackFetch(req: Request): Response {

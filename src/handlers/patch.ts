@@ -3,9 +3,9 @@ import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
 import { getProfileUrl } from "../fhir/types.ts";
-import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
+import { createOperationOutcome, createOperationOutcomeFromIssues } from "./outcome.ts";
 import { applyPatch, PatchError, type PatchOp } from "../fhir/patch.ts";
-import { resolveContext, parseAndValidateBody, respondWithResource } from "./request-context.ts";
+import { resolveContext, parseAndValidateBody, respondWithResource, respondMissing } from "./request-context.ts";
 
 export async function handlePatch(
   req: Request,
@@ -29,12 +29,7 @@ export async function handlePatch(
 
   const existing = store.read(resourceType, resourceId);
   if (!existing) {
-    if (store.isDeleted(resourceType, resourceId)) {
-      const versions = store.listVersions(resourceType, resourceId);
-      const latestVersion = versions.length > 0 ? versions[versions.length - 1]!.version_id : 1;
-      return createOperationOutcome("error", "deleted", `${resourceType}/${resourceId} is deleted`, 410, `W/"${latestVersion}"`);
-    }
-    return createOperationOutcome("error", "not-found", `${resourceType}/${resourceId} not found`, 404);
+    return respondMissing(store, resourceType, resourceId);
   }
 
   let patched: Record<string, unknown>;

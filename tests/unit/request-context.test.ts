@@ -3,7 +3,15 @@ import {
   resolveContext,
   parseAndValidateBody,
   respondWithResource,
+  etag,
+  historyPath,
+  lastModified,
+  respondMissing,
+  respondDeleted,
+  historyEntry,
+  deletedResponse,
 } from "../../src/handlers/request-context.ts";
+import type { ResourceStore } from "../../src/store/types.ts";
 import type { ResourceConfig } from "../../src/fhir/types.ts";
 import type { ValidatorRegistry } from "../../src/fhir/validator-loader.ts";
 import type { StructureDefinition } from "../../src/fhir/types.ts";
@@ -307,5 +315,125 @@ describe("respondWithResource", () => {
     expect(res.headers.get("Last-Modified")).toBe("2026-09-06T00:00:00.000Z");
     const body = (await res.json()) as any;
     expect(body.id).toBe("abc");
+  });
+
+  it("omits Location when asked (plain read shape)", async () => {
+    const resource: any = {
+      resourceType: "Patient",
+      id: "abc",
+      meta: { versionId: "2", lastUpdated: "2026-09-06T00:00:00.000Z" },
+    };
+    const res = respondWithResource(resource, "http://localhost:3000", 200, { location: false });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Location")).toBeNull();
+    expect(res.headers.get("ETag")).toBe('W/"2"');
+    expect(res.headers.get("Last-Modified")).toBe("2026-09-06T00:00:00.000Z");
+  });
+});
+
+function fakeStore(current: { versionId: number; isDeleted: boolean } | null): ResourceStore {
+  return { currentVersion: () => current } as unknown as ResourceStore;
+}
+
+describe("etag", () => {
+  it("wraps numbers and strings weakly", () => {
+    expect(etag(3)).toBe('W/"3"');
+    expect(etag("12")).toBe('W/"12"');
+  });
+});
+
+describe("historyPath", () => {
+  it("builds the instance-version path", () => {
+    expect(historyPath("Patient", "abc", 2)).toBe("Patient/abc/_history/2");
+  });
+});
+
+describe("lastModified", () => {
+  it("uses meta.lastUpdated when present", () => {
+    const res: any = { resourceType: "Patient", id: "a", meta: { lastUpdated: "2026-01-01T00:00:00.000Z" } };
+    expect(lastModified(res)).toBe("2026-01-01T00:00:00.000Z");
+  });
+
+  it("falls back to a parseable timestamp when absent", () => {
+    const res: any = { resourceType: "Patient", id: "a" };
+    expect(isNaN(Date.parse(lastModified(res)))).toBe(false);
+  });
+});
+
+describe("respondMissing", () => {
+  it("answers 404 not-found with an Outcome and no ETag when the resource never existed", async () => {
+    const res = respondMissing(fakeStore(null), "Patient", "abc");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("ETag")).toBeNull();
+    const body = (await res.json()) as any;
+    expect(body.resourceType).toBe("OperationOutcome");
+    expect(body.issue[0].code).toBe("not-found");
+    expect(body.issue[0].diagnostics).toContain("Patient/abc");
+  });
+
+  it("answers 410 gone with ETag and deleted Outcome when the current version is deleted", async () => {
+    const res = respondMissing(fakeStore({ versionId: 3, isDeleted: true }), "Patient", "abc");
+    expect(res.status).toBe(410);
+    expect(res.headers.get("ETag")).toBe('W/"3"');
+    const body = (await res.json()) as any;
+    expect(body.issue[0].code).toBe("deleted");
+    expect(body.issue[0].diagnostics).toContain("Patient/abc is deleted");
+  });
+
+  it("answers 404 when the store reports a live current version (contradictory read)", async () => {
+    const res = respondMissing(fakeStore({ versionId: 1, isDeleted: false }), "Patient", "abc");
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("respondDeleted", () => {
+  it("answers 204 with the latest-version ETag", () => {
+    const res = respondDeleted(fakeStore({ versionId: 5, isDeleted: true }), "Patient", "abc");
+    expect(res.status).toBe(204);
+    expect(res.headers.get("ETag")).toBe('W/"5"');
+  });
+
+  it("answers 204 with ETag W/\"1\" when no version info exists", () => {
+    const res = respondDeleted(fakeStore(null), "Patient", "abc");
+    expect(res.status).toBe(204);
+    expect(res.headers.get("ETag")).toBe('W/"1"');
+  });
+});
+
+describe("deletedResponse", () => {
+  it("gives the shared 410 rule as Bundle-entry data: status, latest-version ETag, deleted Outcome", () => {
+    const r = deletedResponse(fakeStore({ versionId: 4, isDeleted: true }), "Patient", "abc");
+    expect(r.status).toBe("410");
+    expect(r.etag).toBe('W/"4"');
+    const outcome = r.outcome as any;
+    expect(outcome.resourceType).toBe("OperationOutcome");
+    expect(outcome.issue[0].code).toBe("deleted");
+    expect(outcome.issue[0].diagnostics).toBe("Patient/abc is deleted");
+  });
+
+  it("falls back to version 1 when the store reports no current version", () => {
+    const r = deletedResponse(fakeStore(null), "Patient", "abc");
+    expect(r.etag).toBe('W/"1"');
+  });
+});
+
+describe("historyEntry", () => {
+  it("builds a versioned history entry through the shared path and etag rules", () => {
+    const resource: any = { resourceType: "Patient", id: "abc" };
+    const entry = historyEntry({
+      resourceType: "Patient",
+      id: "abc",
+      versionId: 2,
+      lastUpdated: "2026-09-06T00:00:00.000Z",
+      resource,
+    });
+    expect(entry.fullUrl).toBe("Patient/abc/_history/2");
+    expect(entry.request).toEqual({ method: "GET", url: "Patient/abc/_history/2" });
+    expect(entry.resource).toBe(resource);
+    expect(entry.response).toEqual({
+      status: "200",
+      lastModified: "2026-09-06T00:00:00.000Z",
+      etag: 'W/"2"',
+    });
   });
 });

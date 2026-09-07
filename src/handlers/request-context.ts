@@ -1,8 +1,9 @@
-import type { ResourceConfig, FhirResource, StructureDefinition } from "../fhir/types.ts";
+import type { ResourceConfig, FhirResource, StructureDefinition, BundleEntry } from "../fhir/types.ts";
 import { getProfileUrl } from "../fhir/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome, createOperationOutcomeFromIssues } from "./metadata.ts";
+import { createOperationOutcome, createOperationOutcomeFromIssues, buildOperationOutcome } from "./outcome.ts";
+import type { ResourceStore } from "../store/types.ts";
 import type { PatchOp } from "../fhir/patch.ts";
 
 export interface RequestContext {
@@ -206,20 +207,91 @@ export async function parseAndValidateBody(
   return { ok: true, body, expectedVersion };
 }
 
+export function etag(versionId: number | string): string {
+  return `W/"${versionId}"`;
+}
+
+export function historyPath(resourceType: string, id: string, versionId: number | string): string {
+  return `${resourceType}/${id}/_history/${versionId}`;
+}
+
+export function lastModified(resource: FhirResource): string {
+  return resource.meta?.lastUpdated ?? new Date().toISOString();
+}
+
 export function respondWithResource(
   resource: FhirResource,
   baseUrl: string,
-  status: 200 | 201 = 200
+  status: 200 | 201 = 200,
+  opts?: { location?: boolean }
 ): Response {
-  return Response.json(resource, {
-    status,
-    headers: {
-      "Content-Type": "application/fhir+json",
-      Location: `${baseUrl}/${resource.resourceType}/${resource.id}/_history/${resource.meta?.versionId}`,
-      ETag: `W/"${resource.meta?.versionId}"`,
-      "Last-Modified": resource.meta?.lastUpdated ?? new Date().toISOString(),
-    },
+  const headers: Record<string, string> = {
+    "Content-Type": "application/fhir+json",
+    ETag: etag(resource.meta?.versionId ?? 1),
+    "Last-Modified": lastModified(resource),
+  };
+  if (opts?.location !== false) {
+    headers.Location = `${baseUrl}/${historyPath(resource.resourceType, resource.id!, resource.meta?.versionId ?? 1)}`;
+  }
+  return Response.json(resource, { status, headers });
+}
+
+function goneEntryResponse(
+  resourceType: string,
+  id: string,
+  current: { versionId: number } | null
+): NonNullable<BundleEntry["response"]> {
+  return {
+    status: "410",
+    etag: etag(current?.versionId ?? 1),
+    outcome: buildOperationOutcome("error", "deleted", `${resourceType}/${id} is deleted`),
+  };
+}
+
+export function deletedResponse(
+  store: ResourceStore,
+  resourceType: string,
+  id: string
+): NonNullable<BundleEntry["response"]> {
+  return goneEntryResponse(resourceType, id, store.currentVersion(resourceType, id));
+}
+
+export function respondGone(store: ResourceStore, resourceType: string, id: string): Response {
+  const gone = deletedResponse(store, resourceType, id);
+  return Response.json(gone.outcome, {
+    status: 410,
+    headers: { "Content-Type": "application/fhir+json", ETag: gone.etag! },
   });
+}
+
+export function respondMissing(store: ResourceStore, resourceType: string, id: string): Response {
+  if (store.currentVersion(resourceType, id)?.isDeleted) {
+    return respondGone(store, resourceType, id);
+  }
+  return createOperationOutcome("error", "not-found", `${resourceType}/${id} not found`, 404);
+}
+
+export function respondDeleted(store: ResourceStore, resourceType: string, id: string): Response {
+  const current = store.currentVersion(resourceType, id);
+  return new Response(null, { status: 204, headers: { ETag: etag(current?.versionId ?? 1) } });
+}
+
+export interface HistoryEntryInput {
+  resourceType: string;
+  id: string;
+  versionId: number | string;
+  lastUpdated: string;
+  resource?: FhirResource;
+}
+
+export function historyEntry(v: HistoryEntryInput): BundleEntry {
+  const path = historyPath(v.resourceType, v.id, v.versionId);
+  return {
+    fullUrl: path,
+    resource: v.resource,
+    request: { method: "GET", url: path },
+    response: { status: "200", lastModified: v.lastUpdated, etag: etag(v.versionId) },
+  };
 }
 
 function capitalize(s: string): string {

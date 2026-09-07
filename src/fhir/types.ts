@@ -37,7 +37,7 @@ export interface BundleEntry {
   fullUrl?: string;
   resource?: FhirResource;
   request?: { method: string; url: string };
-  response?: { status: string; location?: string; etag?: string; outcome?: FhirResource };
+  response?: { status: string; location?: string; etag?: string; lastModified?: string; outcome?: FhirResource };
 }
 
 export interface BundleLink {

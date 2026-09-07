@@ -512,6 +512,8 @@ describe("Batch and Transaction operations", () => {
       expect(res.status).toBe(200);
       const body = await res.json() as Record<string, any>;
       expect(body.entry[0].response.status).toBe("410");
+      expect(body.entry[0].response.etag).toMatch(/^W\/"\d+"$/);
+      expect(body.entry[0].response.outcome.issue[0].code).toBe("deleted");
     });
 
     it("returns precondition-failed when batch PATCH test op fails", async () => {

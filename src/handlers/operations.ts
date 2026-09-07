@@ -3,7 +3,7 @@ import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore, SqlFilter } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome } from "./metadata.ts";
+import { createOperationOutcome } from "./outcome.ts";
 
 export function handleOperation(
   req: Request,

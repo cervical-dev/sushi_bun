@@ -1,7 +1,7 @@
 import type { ResourceConfig, FhirResource } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
-import { createOperationOutcome } from "./metadata.ts";
+import { createOperationOutcome } from "./outcome.ts";
 import { resolveContext, parseAndValidateBody, respondWithResource } from "./request-context.ts";
 
 export async function handleUpdate(

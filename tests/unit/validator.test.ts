@@ -404,7 +404,7 @@ describe("OperationOutcomeIssue location field", () => {
   });
 
   it("createOperationOutcomeFromIssues produces location array", async () => {
-    const { createOperationOutcomeFromIssues } = require("../../src/handlers/metadata.ts");
+    const { createOperationOutcomeFromIssues } = require("../../src/handlers/outcome.ts");
     const issues: import("../../src/fhir/types.ts").ValidationIssue[] = [
       { severity: "error", code: "cardinality", diagnostics: "missing", location: "Patient.name[0].family" },
     ];
