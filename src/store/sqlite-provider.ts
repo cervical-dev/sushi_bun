@@ -1,32 +1,7 @@
-import type { SearchFilter } from "../fhir/types.ts";
+import type { SearchFilter, SearchParamConfig } from "../fhir/types.ts";
 import type { StorageProvider, SqlFilter } from "./types.ts";
 import { createDatabase } from "../db.ts";
 import { createResourceStore } from "./resource-store.ts";
-
-function getSqlForParam(paramName: string, _type: string): { column: string; useLike: boolean } {
-  switch (paramName) {
-    case "name":
-    case "family":
-      return { column: "json:$.name", useLike: true };
-    case "given":
-      return { column: "json:$.name", useLike: true };
-    case "gender":
-      return { column: "json:$.gender", useLike: false };
-    case "birthdate":
-      return { column: "json:$.birthDate", useLike: false };
-    case "identifier":
-      return { column: "json:$.identifier", useLike: true };
-    case "patient":
-    case "subject":
-      return { column: "json:$.subject.reference", useLike: false };
-    case "code":
-      return { column: "json:$.code", useLike: true };
-    case "status":
-      return { column: "json:$.status", useLike: false };
-    default:
-      return { column: `json:$.${paramName}`, useLike: true };
-  }
-}
 
 function getOperator(prefix: string): string {
   switch (prefix) {
@@ -42,9 +17,13 @@ function getOperator(prefix: string): string {
   }
 }
 
+function escapeLikeValue(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export function sqliteFilterTranslator(
   filters: SearchFilter[],
-  searchParams: Map<string, { name: string; type: string }>
+  searchParams: Map<string, SearchParamConfig>
 ): SqlFilter[] {
   const sqlFilters: SqlFilter[] = [];
 
@@ -52,17 +31,65 @@ export function sqliteFilterTranslator(
     const paramConfig = searchParams.get(filter.parameter);
     if (!paramConfig) continue;
 
-    const sqlInfo = getSqlForParam(filter.parameter, paramConfig.type);
-    const op = sqlInfo.useLike ? "LIKE" : getOperator(filter.prefix ?? "eq");
-    const sqlValue = sqlInfo.useLike
-      ? `%${filter.value}%`
-      : filter.value;
+    const searchPath = paramConfig.searchPath ?? paramConfig.jsonPath ?? `$.${filter.parameter}`;
+    const type = paramConfig.type;
 
-    sqlFilters.push({
-      column: sqlInfo.column,
-      op,
-      value: sqlValue,
-    });
+    if (type === "string" || type === "uri") {
+      const escaped = escapeLikeValue(filter.value);
+      sqlFilters.push({
+        column: `json:${searchPath}`,
+        op: "LIKE",
+        value: `%${escaped}%`,
+      });
+    } else if (type === "token") {
+      if (filter.value.includes("|")) {
+        const [system, code] = filter.value.split("|", 2);
+        const field = searchPath.includes(".identifier") ? "value" : "code";
+        const parts: string[] = [];
+        if (system) parts.push(`%"system":"${escapeLikeValue(system)}"%`);
+        if (code) parts.push(`%"${field}":"${escapeLikeValue(code)}"%`);
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: "LIKE",
+          value: parts.join(`%`),
+        });
+      } else {
+        const isComplexPath = searchPath.includes(".coding") || searchPath.includes(".identifier");
+        if (isComplexPath) {
+          const field = searchPath.includes(".coding") ? "code" : "value";
+          sqlFilters.push({
+            column: `json:${searchPath}`,
+            op: "LIKE",
+            value: `%"${field}":"${escapeLikeValue(filter.value)}"%`,
+          });
+        } else {
+          sqlFilters.push({
+            column: `json:${searchPath}`,
+            op: "=",
+            value: filter.value,
+          });
+        }
+      }
+    } else if (type === "date" || type === "number" || type === "quantity") {
+      const op = getOperator(filter.prefix ?? "eq");
+      sqlFilters.push({
+        column: `json:${searchPath}`,
+        op,
+        value: filter.value,
+      });
+    } else if (type === "reference") {
+      sqlFilters.push({
+        column: `json:${searchPath}`,
+        op: "=",
+        value: filter.value,
+      });
+    } else {
+      sqlFilters.push({
+        column: `json:${searchPath}`,
+        op: "=",
+        value: filter.value,
+      });
+    }
   }
 
   return sqlFilters;

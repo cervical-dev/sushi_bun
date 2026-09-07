@@ -109,6 +109,15 @@ describe("Search operations", () => {
     expect(body.entry.length).toBe(0);
   });
 
+  it("searches with comma-separated values using OR semantics", async () => {
+    const res = await fetch(`${server.baseUrl}/Patient?name=Beta,Gamma`);
+    expect(res.status).toBe(200);
+    const body = await res.json() as Record<string, any>;
+    expect(body.total).toBe(2);
+    const families = body.entry.map((e: any) => e.resource.name[0].family).sort();
+    expect(families).toEqual(["Beta", "Gamma"]);
+  });
+
   it("searches via POST with form-encoded body", async () => {
     const res = await fetch(`${server.baseUrl}/Patient/_search`, {
       method: "POST",

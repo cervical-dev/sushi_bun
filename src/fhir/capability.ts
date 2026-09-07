@@ -7,7 +7,7 @@ interface CapabilityStatementJson {
     resource?: Array<{
       type: string;
       interaction?: Array<{ code: string }>;
-      searchParam?: Array<{ name: string; type: string; documentation?: string }>;
+      searchParam?: Array<{ name: string; type: string; documentation?: string; definition?: string }>;
       operation?: Array<{ name: string; definition: string }>;
       versioning?: string;
       readHistory?: boolean;
@@ -52,6 +52,7 @@ export function parseCapabilityStatement(capability: CapabilityStatementJson): R
             name: param.name,
             type: param.type,
             documentation: param.documentation,
+            definition: param.definition,
           });
         }
       }

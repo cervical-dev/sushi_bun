@@ -1,8 +1,8 @@
-import type { SearchFilter } from "../fhir/types.ts";
+import type { SearchFilter, SearchParamConfig } from "../fhir/types.ts";
 
 export function parseSearchParams(
   queryString: string,
-  searchParams: Map<string, { name: string; type: string }>
+  searchParams: Map<string, SearchParamConfig>
 ): SearchFilter[] {
   const filters: SearchFilter[] = [];
   const params = new URLSearchParams(queryString);

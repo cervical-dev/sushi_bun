@@ -3,6 +3,7 @@ import { buildRoutes } from "./router/generator.ts";
 import { defaultHandlers } from "./handlers/default.ts";
 import { loadValidators } from "./fhir/validator-loader.ts";
 import { fallbackFetch } from "./router/fallback.ts";
+import { loadSearchParameters, applyResolvedMapping } from "./fhir/search-param-loader.ts";
 import type { RouteConfig } from "./fhir/types.ts";
 import type { HandlerProvider } from "./handlers/types.ts";
 
@@ -21,7 +22,13 @@ export async function createServer(serverConfig: ServerConfig) {
     ? serverConfig.capabilityPath.substring(0, serverConfig.capabilityPath.lastIndexOf("/"))
     : "fsh-generated/resources";
   const sdDir = capabilityDir || "fsh-generated/resources";
-  const validators = await loadValidators(sdDir);
+
+  const [validators, searchParameters] = await Promise.all([
+    loadValidators(sdDir),
+    loadSearchParameters(sdDir),
+  ]);
+
+  applyResolvedMapping(config, searchParameters);
 
   const handlers = serverConfig.handlers ?? await defaultHandlers(undefined, validators);
   const routes = buildRoutes(config, capabilityJson, handlers);

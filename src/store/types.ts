@@ -1,4 +1,4 @@
-import type { FhirResource, SearchFilter } from "../fhir/types.ts";
+import type { FhirResource, SearchFilter, SearchParamConfig } from "../fhir/types.ts";
 
 export interface VersionRecord {
   version_id: number;
@@ -22,7 +22,7 @@ export interface SqlFilter {
 
 export type FilterTranslator = (
   filters: SearchFilter[],
-  searchParams: Map<string, { name: string; type: string }>
+  searchParams: Map<string, SearchParamConfig>
 ) => unknown;
 
 export interface ResourceStore<F = SqlFilter[]> {

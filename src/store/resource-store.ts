@@ -128,8 +128,13 @@ export function createResourceStore(db: Database): ResourceStore {
 
         if (filter.column.startsWith("json:")) {
           const jsonPath = filter.column.slice(5);
-          clause += ` AND json_extract(data, $${`path${paramIndex}`}) ${filter.op} ${paramName}`;
-          params[`$path${paramIndex}`] = jsonPath;
+          const pathParam = `$path${paramIndex}`;
+          if (filter.op === "LIKE" || filter.op === "NOT LIKE") {
+            clause += ` AND (CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value ${filter.op} ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) ${filter.op} ${paramName} ESCAPE '\\' END)`;
+          } else {
+            clause += ` AND json_extract(data, ${pathParam}) ${filter.op} ${paramName}`;
+          }
+          params[pathParam] = jsonPath;
         } else {
           clause += ` AND ${filter.column} ${filter.op} ${paramName}`;
         }
@@ -144,8 +149,13 @@ export function createResourceStore(db: Database): ResourceStore {
 
           if (filter.column.startsWith("json:")) {
             const jsonPath = filter.column.slice(5);
-            orParts.push(`json_extract(data, $${`path${paramIndex}`}) ${filter.op} ${paramName}`);
-            params[`$path${paramIndex}`] = jsonPath;
+            const pathParam = `$path${paramIndex}`;
+            if (filter.op === "LIKE" || filter.op === "NOT LIKE") {
+              orParts.push(`(CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value ${filter.op} ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) ${filter.op} ${paramName} ESCAPE '\\' END)`);
+            } else {
+              orParts.push(`json_extract(data, ${pathParam}) ${filter.op} ${paramName}`);
+            }
+            params[pathParam] = jsonPath;
           } else {
             orParts.push(`${filter.column} ${filter.op} ${paramName}`);
           }

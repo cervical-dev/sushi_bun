@@ -25,21 +25,27 @@ Usage: #definition
 * rest.resource[=].conditionalUpdate = true
 * rest.resource[=].conditionalDelete = #single
 * rest.resource[=].searchParam[+].name = "name"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-name"
 * rest.resource[=].searchParam[=].type = #string
 * rest.resource[=].searchParam[=].documentation = "A server defined search that may match any of the string fields in the HumanName"
 * rest.resource[=].searchParam[+].name = "family"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-family"
 * rest.resource[=].searchParam[=].type = #string
 * rest.resource[=].searchParam[=].documentation = "A portion of the family name of the patient"
 * rest.resource[=].searchParam[+].name = "given"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-given"
 * rest.resource[=].searchParam[=].type = #string
 * rest.resource[=].searchParam[=].documentation = "A portion of the given name of the patient"
 * rest.resource[=].searchParam[+].name = "gender"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-gender"
 * rest.resource[=].searchParam[=].type = #token
 * rest.resource[=].searchParam[=].documentation = "Gender of the patient"
 * rest.resource[=].searchParam[+].name = "birthdate"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-birthdate"
 * rest.resource[=].searchParam[=].type = #date
 * rest.resource[=].searchParam[=].documentation = "The patient's date of birth"
 * rest.resource[=].searchParam[+].name = "identifier"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Patient-identifier"
 * rest.resource[=].searchParam[=].type = #token
 * rest.resource[=].searchParam[=].documentation = "A patient identifier"
 * rest.resource[=].operation[+].name = "everything"
@@ -52,12 +58,15 @@ Usage: #definition
 * rest.resource[=].interaction[+].code = #read
 * rest.resource[=].interaction[+].code = #search-type
 * rest.resource[=].searchParam[+].name = "patient"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Observation-patient"
 * rest.resource[=].searchParam[=].type = #reference
 * rest.resource[=].searchParam[=].documentation = "Who and/or what the observation is about"
 * rest.resource[=].searchParam[+].name = "code"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Observation-code"
 * rest.resource[=].searchParam[=].type = #token
 * rest.resource[=].searchParam[=].documentation = "Describes what was observed"
 * rest.resource[=].searchParam[+].name = "status"
+* rest.resource[=].searchParam[=].definition = "http://example.org/fhir/SearchParameter/Observation-status"
 * rest.resource[=].searchParam[=].type = #token
 * rest.resource[=].searchParam[=].documentation = "The status of the observation result"
 

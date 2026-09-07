@@ -68,6 +68,9 @@ export interface SearchParamConfig {
   name: string;
   type: string;
   documentation?: string;
+  definition?: string;
+  jsonPath?: string;
+  searchPath?: string;
 }
 
 export interface RouteConfig {

@@ -6,6 +6,7 @@ import { defaultHandlers } from "../src/handlers/default.ts";
 import { loadValidators } from "../src/fhir/validator-loader.ts";
 import { buildRoutes } from "../src/router/generator.ts";
 import { fallbackFetch } from "../src/router/fallback.ts";
+import { loadSearchParameters, applyResolvedMapping } from "../src/fhir/search-param-loader.ts";
 import type { RouteConfig } from "../src/fhir/types.ts";
 import type { ResourceStore, StorageProvider } from "../src/store/types.ts";
 import type { ValidatorRegistry } from "../src/fhir/validator-loader.ts";
@@ -60,7 +61,13 @@ export async function createTestServer(capabilityPath: string): Promise<TestServ
     ? capabilityPath.substring(0, capabilityPath.lastIndexOf("/"))
     : "fsh-generated/resources";
   const sdDir = capabilityDir || "fsh-generated/resources";
-  const validators = await loadValidators(sdDir);
+
+  const [validators, searchParameters] = await Promise.all([
+    loadValidators(sdDir),
+    loadSearchParameters(sdDir),
+  ]);
+
+  applyResolvedMapping(config, searchParameters);
 
   const db = createTestDb();
   const store = createResourceStore(db);
@@ -117,6 +124,8 @@ export function sampleObservation(patientRef: string, overrides?: Record<string,
 
 export async function createTestServerWithCapability(capability: Record<string, unknown>): Promise<TestServer> {
   const config = parseCapabilityStatement(capability as any);
+  const searchParameters = await loadSearchParameters("fsh-generated/resources");
+  applyResolvedMapping(config, searchParameters);
   const db = createTestDb();
   const store = createResourceStore(db);
   const provider = sqliteProvider();
