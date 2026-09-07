@@ -1,6 +1,12 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { createTestStore } from "../helpers.ts";
+import { createDatabase } from "../../src/db.ts";
+import { createResourceStore } from "../../src/store/resource-store.ts";
 import type { Database } from "bun:sqlite";
+
+function createTestStore() {
+  const db = createDatabase(":memory:");
+  return { store: createResourceStore(db), db };
+}
 
 describe("ResourceStore", () => {
   let store: ReturnType<typeof createTestStore>["store"];

@@ -1,3 +1,7 @@
+/**
+ * @deprecated Import from "../support/index.ts" instead.
+ * This file is kept for backwards compatibility during migration.
+ */
 import { Database } from "bun:sqlite";
 import { parseCapabilityStatement } from "../src/fhir/capability.ts";
 import { createResourceStore } from "../src/store/resource-store.ts";
@@ -150,3 +154,9 @@ export async function createTestServerWithCapability(capability: Record<string, 
     stop: () => { server.stop(); db.close(); },
   };
 }
+
+// Re-export new support modules for convenience
+export { createClient, expectCreated, expectOutcome, expectEtag, expectLocation, expectBundle, expectLastModified } from "./support/client.ts";
+export type { FhirClient, FhirResponse, PatchOp, BatchEntry } from "./support/client.ts";
+export { validPatient, validObservation, invalidPatientMissingName, invalidPatientBadGender, invalidPatientBadBirthDate, mismatchedResourceType, bundleBatch, bundleTransaction, patientSD } from "./support/builders.ts";
+export { fullCapability, readOnlyCapability, noHistoryCapability, noCreateCapability, noUpdateCreateCapability } from "./support/capabilities.ts";

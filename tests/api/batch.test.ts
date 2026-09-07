@@ -1,14 +1,18 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { createTestServer, samplePatient, type TestServer } from "../helpers.ts";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { createTestServer, createClient, validPatient, type TestServer, type FhirClient } from "../support/index.ts";
+
+const CAPABILITY_PATH = "fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json";
 
 describe("Batch and Transaction operations", () => {
   let server: TestServer;
+  let client: FhirClient;
 
-  beforeAll(async () => {
-    server = await createTestServer("fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json");
+  beforeEach(async () => {
+    server = await createTestServer(CAPABILITY_PATH);
+    client = createClient(server.baseUrl);
   });
 
-  afterAll(() => {
+  afterEach(() => {
     server.stop();
   });
 
@@ -23,11 +27,11 @@ describe("Batch and Transaction operations", () => {
           entry: [
             {
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Batch1", given: ["Patient1"] }] }),
+              resource: validPatient({ name: [{ family: "Batch1", given: ["Patient1"] }] }),
             },
             {
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Batch2", given: ["Patient2"] }] }),
+              resource: validPatient({ name: [{ family: "Batch2", given: ["Patient2"] }] }),
             },
           ],
         }),
@@ -43,7 +47,7 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("processes a batch with mixed operations", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -53,10 +57,10 @@ describe("Batch and Transaction operations", () => {
           type: "batch",
           entry: [
             {
-              request: { method: "GET", url: `Patient/${created.id}` },
+              request: { method: "GET", url: `Patient/${created.body.id}` },
             },
             {
-              request: { method: "DELETE", url: `Patient/${created.id}` },
+              request: { method: "DELETE", url: `Patient/${created.body.id}` },
             },
           ],
         }),
@@ -81,12 +85,12 @@ describe("Batch and Transaction operations", () => {
             {
               fullUrl: "urn:uuid:patient-1",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Tx1", given: ["Patient1"] }] }),
+              resource: validPatient({ name: [{ family: "Tx1", given: ["Patient1"] }] }),
             },
             {
               fullUrl: "urn:uuid:patient-2",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "Tx2", given: ["Patient2"] }] }),
+              resource: validPatient({ name: [{ family: "Tx2", given: ["Patient2"] }] }),
             },
           ],
         }),
@@ -111,7 +115,7 @@ describe("Batch and Transaction operations", () => {
             {
               fullUrl: "urn:uuid:good-patient",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "ShouldBeRolledBack", given: ["Rollback"] }] }),
+              resource: validPatient({ name: [{ family: "ShouldBeRolledBack", given: ["Rollback"] }] }),
             },
             {
               fullUrl: "urn:uuid:bad-entry",
@@ -134,13 +138,12 @@ describe("Batch and Transaction operations", () => {
       expect(goodResult.status).toBe("422");
       expect(badResult.status).toBe("404");
 
-      const searchRes = await fetch(`${server.baseUrl}/Patient?name=ShouldBeRolledBack`);
-      const searchBody = await searchRes.json() as Record<string, any>;
-      expect(searchBody.total).toBe(0);
+      const searchRes = await client.search("Patient", { name: "ShouldBeRolledBack" });
+      expect(searchRes.body.total).toBe(0);
     });
 
     it("processes transaction entries in correct order", async () => {
-      const created = server.store.create("Patient", samplePatient({ name: [{ family: "ToDelete", given: ["Order"] }] }));
+      const created = await client.create("Patient", validPatient({ name: [{ family: "ToDelete", given: ["Order"] }] }));
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -150,15 +153,15 @@ describe("Batch and Transaction operations", () => {
           type: "transaction",
           entry: [
             {
-              request: { method: "GET", url: `Patient/${created.id}` },
+              request: { method: "GET", url: `Patient/${created.body.id}` },
             },
             {
               fullUrl: "urn:uuid:new-patient",
               request: { method: "POST", url: "Patient" },
-              resource: samplePatient({ name: [{ family: "CreatedAfter", given: ["Order"] }] }),
+              resource: validPatient({ name: [{ family: "CreatedAfter", given: ["Order"] }] }),
             },
             {
-              request: { method: "DELETE", url: `Patient/${created.id}` },
+              request: { method: "DELETE", url: `Patient/${created.body.id}` },
             },
           ],
         }),
@@ -266,7 +269,7 @@ describe("Batch and Transaction operations", () => {
           type: "batch",
           entry: [
             {
-              resource: samplePatient(),
+              resource: validPatient(),
             },
           ],
         }),
@@ -307,7 +310,7 @@ describe("Batch and Transaction operations", () => {
           entry: [
             {
               request: { method: "PUT", url: "Patient" },
-              resource: samplePatient(),
+              resource: validPatient(),
             },
           ],
         }),
@@ -319,7 +322,7 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("rejects PUT entry missing resource", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -329,7 +332,7 @@ describe("Batch and Transaction operations", () => {
           type: "batch",
           entry: [
             {
-              request: { method: "PUT", url: `Patient/${created.id}` },
+              request: { method: "PUT", url: `Patient/${created.body.id}` },
             },
           ],
         }),
@@ -401,7 +404,7 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("does not validate resource payload on DELETE entries", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -411,7 +414,7 @@ describe("Batch and Transaction operations", () => {
           type: "batch",
           entry: [
             {
-              request: { method: "DELETE", url: `Patient/${created.id}` },
+              request: { method: "DELETE", url: `Patient/${created.body.id}` },
               resource: { resourceType: "Patient" },
             },
           ],
@@ -447,7 +450,7 @@ describe("Batch and Transaction operations", () => {
 
   describe("batch PATCH", () => {
     it("patches a patient in a batch", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -456,7 +459,7 @@ describe("Batch and Transaction operations", () => {
           resourceType: "Bundle",
           type: "batch",
           entry: [{
-            request: { method: "PATCH", url: `Patient/${created.id}` },
+            request: { method: "PATCH", url: `Patient/${created.body.id}` },
             resource: [{ op: "replace", path: "/gender", value: "female" }],
           }],
         }),
@@ -469,7 +472,7 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("returns 422 when batch PATCH changes resourceType", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -478,7 +481,7 @@ describe("Batch and Transaction operations", () => {
           resourceType: "Bundle",
           type: "batch",
           entry: [{
-            request: { method: "PATCH", url: `Patient/${created.id}` },
+            request: { method: "PATCH", url: `Patient/${created.body.id}` },
             resource: [{ op: "replace", path: "/resourceType", value: "Observation" }],
           }],
         }),
@@ -490,8 +493,8 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("returns 410 when batch PATCH on deleted resource", async () => {
-      const created = server.store.create("Patient", samplePatient());
-      server.store.softDelete("Patient", created.id!);
+      const created = await client.create("Patient", validPatient());
+      await client.delete("Patient", created.body.id);
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -500,7 +503,7 @@ describe("Batch and Transaction operations", () => {
           resourceType: "Bundle",
           type: "batch",
           entry: [{
-            request: { method: "PATCH", url: `Patient/${created.id}` },
+            request: { method: "PATCH", url: `Patient/${created.body.id}` },
             resource: [{ op: "replace", path: "/gender", value: "female" }],
           }],
         }),
@@ -512,7 +515,7 @@ describe("Batch and Transaction operations", () => {
     });
 
     it("returns precondition-failed when batch PATCH test op fails", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
       const res = await fetch(`${server.baseUrl}/`, {
         method: "POST",
@@ -521,7 +524,7 @@ describe("Batch and Transaction operations", () => {
           resourceType: "Bundle",
           type: "batch",
           entry: [{
-            request: { method: "PATCH", url: `Patient/${created.id}` },
+            request: { method: "PATCH", url: `Patient/${created.body.id}` },
             resource: [{ op: "test", path: "/gender", value: "wrong" }],
           }],
         }),

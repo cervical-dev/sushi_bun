@@ -1,21 +1,35 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { createTestServer, samplePatient, type TestServer } from "../helpers.ts";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { createTestServer, createClient, validPatient, type TestServer, type FhirClient } from "../support/index.ts";
 
 describe("Operations", () => {
   let server: TestServer;
+  let client: FhirClient;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     server = await createTestServer("fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json");
+    client = createClient(server.baseUrl);
   });
 
-  afterAll(() => {
+  afterEach(() => {
     server.stop();
   });
 
   describe("$everything", () => {
     it("returns all resources of a type", async () => {
-      server.store.create("Patient", samplePatient({ name: [{ family: "Everything1" }] }));
-      server.store.create("Patient", samplePatient({ name: [{ family: "Everything2" }] }));
+      server.store.create("Patient", {
+        resourceType: "Patient",
+        identifier: [{ system: "http://example.org/mrn", value: "everything-1" }],
+        name: [{ family: "Everything1", given: ["Test"] }],
+        gender: "male",
+        birthDate: "1990-01-01",
+      });
+      server.store.create("Patient", {
+        resourceType: "Patient",
+        identifier: [{ system: "http://example.org/mrn", value: "everything-2" }],
+        name: [{ family: "Everything2", given: ["Test"] }],
+        gender: "male",
+        birthDate: "1990-01-01",
+      });
 
       const res = await fetch(`${server.baseUrl}/Patient/$everything`, {
         method: "POST",
@@ -31,16 +45,11 @@ describe("Operations", () => {
 
   describe("$validate", () => {
     it("returns validation outcome", async () => {
-      const res = await fetch(`${server.baseUrl}/Patient/$validate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/fhir+json" },
-        body: JSON.stringify(samplePatient()),
-      });
+      const res = await client.validate("Patient", validPatient());
 
       expect(res.status).toBe(200);
-      const body = await res.json() as Record<string, any>;
-      expect(body.resourceType).toBe("OperationOutcome");
-      expect(body.issue[0].severity).toBe("information");
+      expect(res.body.resourceType).toBe("OperationOutcome");
+      expect(res.body.issue[0].severity).toBe("information");
     });
   });
 
@@ -58,12 +67,12 @@ describe("Operations", () => {
 
   describe("instance operations", () => {
     it("routes instance validate operation", async () => {
-      const created = server.store.create("Patient", samplePatient());
+      const created = await client.create("Patient", validPatient());
 
-      const res = await fetch(`${server.baseUrl}/Patient/${created.id}/$validate`, {
+      const res = await fetch(`${server.baseUrl}/Patient/${created.body.id}/$validate`, {
         method: "POST",
         headers: { "Content-Type": "application/fhir+json" },
-        body: JSON.stringify(samplePatient()),
+        body: JSON.stringify(validPatient()),
       });
 
       expect(res.status).toBe(200);
@@ -77,7 +86,7 @@ describe("Operations", () => {
       const res = await fetch(`${server.baseUrl}/$validate`, {
         method: "POST",
         headers: { "Content-Type": "application/fhir+json" },
-        body: JSON.stringify(samplePatient()),
+        body: JSON.stringify(validPatient()),
       });
 
       expect(res.status).toBe(404);

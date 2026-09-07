@@ -30,7 +30,7 @@ function resolvePath(doc: unknown, path: string[], op?: string): { target: any; 
     }
     return null;
   }
-  if (typeof parent === "object" && parent !== null && lastKey in parent) {
+  if (typeof parent === "object" && parent !== null && Object.hasOwn(parent, lastKey)) {
     return { target: parent[lastKey], key: lastKey, parent };
   }
   return null;
@@ -54,6 +54,7 @@ function resolvePathOrCreate(doc: unknown, path: string[]): { target: any; key: 
   }
   const lastKey = path[path.length - 1]!;
   const parent = current;
+  if (parent == null || typeof parent !== "object") return null;
   if (Array.isArray(parent)) {
     if (lastKey === "-") return { target: parent, key: parent.length, parent };
     const idx = Number(lastKey);
@@ -62,6 +63,7 @@ function resolvePathOrCreate(doc: unknown, path: string[]): { target: any; key: 
     }
     return null;
   }
+  if (!Object.hasOwn(parent, lastKey) && lastKey in parent) return null;
   return { target: parent[lastKey], key: lastKey, parent };
 }
 

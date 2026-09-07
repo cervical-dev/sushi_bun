@@ -2,25 +2,9 @@ import { describe, it, expect } from "bun:test";
 import * as fc from "fast-check";
 import { validateResource } from "../../src/fhir/validator.ts";
 import type { StructureDefinition, StructureDefinitionElement } from "../../src/fhir/types.ts";
+import { patientSD } from "../support/builders.ts";
 
-const myPatientSD: StructureDefinition = {
-  resourceType: "StructureDefinition",
-  id: "my-patient",
-  url: "http://example.org/fhir/StructureDefinition/my-patient",
-  type: "Patient",
-  differential: {
-    element: [
-      { id: "Patient.identifier", path: "Patient.identifier", min: 1, max: "*", mustSupport: true },
-      { id: "Patient.identifier.system", path: "Patient.identifier.system", min: 1 },
-      { id: "Patient.identifier.value", path: "Patient.identifier.value", min: 1 },
-      { id: "Patient.name", path: "Patient.name", min: 1, max: "*", mustSupport: true },
-      { id: "Patient.name.family", path: "Patient.name.family", min: 1, mustSupport: true },
-      { id: "Patient.name.given", path: "Patient.name.given", min: 1, max: "*", mustSupport: true },
-      { id: "Patient.gender", path: "Patient.gender", min: 1, mustSupport: true },
-      { id: "Patient.birthDate", path: "Patient.birthDate", min: 1, mustSupport: true },
-    ],
-  },
-};
+const myPatientSD = patientSD() as StructureDefinition;
 
 function validPatientArbitrary(): fc.Arbitrary<Record<string, unknown>> {
   return fc.record({
@@ -30,17 +14,37 @@ function validPatientArbitrary(): fc.Arbitrary<Record<string, unknown>> {
         system: fc.constant("http://example.org/mrn"),
         value: fc.stringMatching(/^[0-9a-f]{4,8}$/),
       }),
-      { minLength: 1, maxLength: 1 }
+      { minLength: 1, maxLength: 3 }
     ),
     name: fc.array(
       fc.record({
         family: fc.stringMatching(/^[A-Z][a-z]+$/),
         given: fc.array(fc.stringMatching(/^[A-Z][a-z]+$/), { minLength: 1, maxLength: 2 }),
       }),
-      { minLength: 1, maxLength: 1 }
+      { minLength: 1, maxLength: 3 }
     ),
     gender: fc.constantFrom("male", "female", "other", "unknown"),
     birthDate: fc.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    telecom: fc.option(
+      fc.array(
+        fc.record({
+          system: fc.constant("phone"),
+          value: fc.stringMatching(/^\d{10}$/),
+        }),
+        { nil: undefined }
+      ),
+    ),
+    address: fc.option(
+      fc.array(
+        fc.record({
+          line: fc.array(fc.constant("123 Main St"), { minLength: 1, maxLength: 1 }),
+          city: fc.constant("Springfield"),
+          state: fc.constant("IL"),
+          postalCode: fc.stringMatching(/^\d{5}$/),
+        }),
+        { nil: undefined }
+      ),
+    ),
   });
 }
 
@@ -57,6 +61,14 @@ const mutationStrategies: FieldRemover[] = [
   { field: "gender", remove: r => { const c = { ...r }; delete c.gender; return c; } },
   { field: "birthDate", remove: r => { const c = { ...r }; delete c.birthDate; return c; } },
 ];
+
+function stripUndefined(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (v !== undefined) result[k] = v;
+  }
+  return result;
+}
 
 describe("Full Validation Pipeline — Property-Based Tests", () => {
   describe("Robustness on arbitrary input", () => {
@@ -83,7 +95,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
           validPatientArbitrary(),
           fc.dictionary(fc.string(), fc.jsonValue()),
           (patient, extra) => {
-            const withExtra = { ...patient, ...extra };
+            const withExtra = stripUndefined({ ...patient, ...extra });
             expect(() => validateResource(withExtra, myPatientSD)).not.toThrow();
           }
         ),
@@ -96,7 +108,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
     it("all generated conformant patients pass validation", () => {
       fc.assert(
         fc.property(validPatientArbitrary(), (patient) => {
-          const result = validateResource(patient, myPatientSD);
+          const result = validateResource(stripUndefined(patient), myPatientSD);
           expect(result.valid).toBe(true);
           expect(result.issues).toHaveLength(0);
         }),
@@ -112,7 +124,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
           validPatientArbitrary(),
           fc.constantFrom(...mutationStrategies),
           (validResource, mutation) => {
-            const mutated = mutation.remove(validResource);
+            const mutated = stripUndefined(mutation.remove(validResource));
             const result = validateResource(mutated, myPatientSD);
             expect(result.valid).toBe(false);
             expect(result.issues.length).toBeGreaterThan(0);
@@ -129,7 +141,7 @@ describe("Full Validation Pipeline — Property-Based Tests", () => {
         fc.property(
           fc.oneof(validPatientArbitrary(), fc.jsonValue().map(v => {
             const r = typeof v === "object" && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : {};
-            return { resourceType: "Patient", ...r };
+            return stripUndefined({ resourceType: "Patient", ...r });
           })),
           (resource) => {
             const result1 = validateResource(resource, myPatientSD);

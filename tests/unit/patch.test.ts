@@ -162,6 +162,33 @@ describe("JSON Patch", () => {
     });
   });
 
+  describe("prototype safety", () => {
+    it("add on null doc throws PatchError, not TypeError", () => {
+      expect(() => applyPatch(null as any, [{ op: "add", path: "/-", value: 1 }])).toThrow(PatchError);
+    });
+
+    it("add on null doc with named key throws PatchError", () => {
+      expect(() => applyPatch(null as any, [{ op: "add", path: "/foo", value: 1 }])).toThrow(PatchError);
+    });
+
+    it("remove does not match prototype properties", () => {
+      expect(() => applyPatch({}, [{ op: "remove", path: "/toString" }])).toThrow(PatchError);
+      expect(() => applyPatch({}, [{ op: "remove", path: "/__proto__" }])).toThrow(PatchError);
+    });
+
+    it("replace does not match prototype properties", () => {
+      expect(() => applyPatch({}, [{ op: "replace", path: "/toString", value: 1 }])).toThrow(PatchError);
+    });
+
+    it("move does not match prototype properties as source", () => {
+      expect(() => applyPatch({}, [{ op: "move", from: "/toString", path: "/a" }])).toThrow(PatchError);
+    });
+
+    it("copy does not match prototype properties as source", () => {
+      expect(() => applyPatch({}, [{ op: "copy", from: "/toString", path: "/a" }])).toThrow(PatchError);
+    });
+  });
+
   describe("unsupported ops", () => {
     it("throws on unknown operation", () => {
       expect(() => applyPatch({ a: 1 }, [{ op: "invalid", path: "/a" }])).toThrow(PatchError);

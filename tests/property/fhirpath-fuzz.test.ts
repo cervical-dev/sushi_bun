@@ -105,17 +105,14 @@ describe("FHIRPath — Property-Based Tests", () => {
         fc.property(
           safeExpressionArb,
           (expr) => {
-            try {
-              const ast1 = parse(expr);
-              const val = evaluate(ast1, sampleResource);
-              const boolExpr = `${expr} and ${expr}`;
-              const ast2 = parse(boolExpr);
-              const result = evaluate(ast2, sampleResource);
-              const isBool = typeof val === "boolean";
-              if (isBool) {
-                expect(result).toBe(val);
-              }
-            } catch { /* ignore parse errors on complex exprs */ }
+            const ast1 = parse(expr);
+            const val = evaluate(ast1, sampleResource);
+            fc.pre(typeof val === "boolean");
+
+            const boolExpr = `${expr} and ${expr}`;
+            const ast2 = parse(boolExpr);
+            const result = evaluate(ast2, sampleResource);
+            expect(result).toBe(val);
           }
         ),
         { numRuns: 500, endOnFailure: true }
@@ -127,17 +124,14 @@ describe("FHIRPath — Property-Based Tests", () => {
         fc.property(
           safeExpressionArb,
           (expr) => {
-            try {
-              const ast1 = parse(expr);
-              const val = evaluate(ast1, sampleResource);
-              const boolExpr = `${expr} or ${expr}`;
-              const ast2 = parse(boolExpr);
-              const result = evaluate(ast2, sampleResource);
-              const isBool = typeof val === "boolean";
-              if (isBool) {
-                expect(result).toBe(val);
-              }
-            } catch { /* ignore parse errors */ }
+            const ast1 = parse(expr);
+            const val = evaluate(ast1, sampleResource);
+            fc.pre(typeof val === "boolean");
+
+            const boolExpr = `${expr} or ${expr}`;
+            const ast2 = parse(boolExpr);
+            const result = evaluate(ast2, sampleResource);
+            expect(result).toBe(val);
           }
         ),
         { numRuns: 500, endOnFailure: true }

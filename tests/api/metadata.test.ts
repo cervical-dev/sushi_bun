@@ -1,30 +1,32 @@
-import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { createTestServer, type TestServer } from "../helpers.ts";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { createTestServer, createClient, type TestServer } from "../support/index.ts";
 
 describe("Metadata endpoint", () => {
   let server: TestServer;
+  let client: ReturnType<typeof createClient>;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
     server = await createTestServer("fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json");
+    client = createClient(server.baseUrl);
   });
 
-  afterAll(() => {
+  afterEach(() => {
     server.stop();
   });
 
   it("returns the capability statement", async () => {
-    const res = await fetch(`${server.baseUrl}/metadata`);
+    const res = await client.metadata();
     expect(res.status).toBe(200);
 
-    const body = await res.json() as Record<string, any>;
+    const body = res.body;
     expect(body.resourceType).toBe("CapabilityStatement");
     expect(body.fhirVersion).toBe("5.0.0");
     expect(body.kind).toBe("instance");
   });
 
   it("includes Patient resource in capability", async () => {
-    const res = await fetch(`${server.baseUrl}/metadata`);
-    const body = await res.json() as Record<string, any>;
+    const res = await client.metadata();
+    const body = res.body;
 
     const patientResource = body.rest[0].resource.find((r: { type: string }) => r.type === "Patient");
     expect(patientResource).toBeDefined();
@@ -34,8 +36,8 @@ describe("Metadata endpoint", () => {
   });
 
   it("includes search parameters for Patient", async () => {
-    const res = await fetch(`${server.baseUrl}/metadata`);
-    const body = await res.json() as Record<string, any>;
+    const res = await client.metadata();
+    const body = res.body;
 
     const patientResource = body.rest[0].resource.find((r: { type: string }) => r.type === "Patient");
     expect(patientResource.searchParam.length).toBeGreaterThan(0);
@@ -46,12 +48,12 @@ describe("Metadata endpoint", () => {
   });
 
   it("sets correct content type header", async () => {
-    const res = await fetch(`${server.baseUrl}/metadata`);
+    const res = await client.metadata();
     expect(res.headers.get("Content-Type")).toBe("application/fhir+json");
   });
 
   it("sets cache control header", async () => {
-    const res = await fetch(`${server.baseUrl}/metadata`);
+    const res = await client.metadata();
     expect(res.headers.get("Cache-Control")).toContain("max-age");
   });
 });
