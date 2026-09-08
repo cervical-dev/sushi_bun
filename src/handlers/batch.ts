@@ -3,9 +3,13 @@ import { getProfileUrl } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
-import { createOperationOutcome } from "./outcome.ts";
+import { createOperationOutcome, buildOperationOutcome } from "./outcome.ts";
 import { etag, historyPath, deletedResponse } from "./request-context.ts";
 import { applyPatch, PatchError } from "../fhir/patch.ts";
+
+function entryError(status: string, code: string, diagnostics: string): BundleEntry {
+  return { response: { status, outcome: buildOperationOutcome("error", code, diagnostics) } };
+}
 
 interface ValidatableEntry {
   entry: BundleEntry;
@@ -24,9 +28,7 @@ function validateEntry(
   config: RouteConfig
 ): { entry: BundleEntry; error?: string } {
   if (!entry.request) {
-    return {
-      entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "Entry must have a request" }] } } },
-    };
+    return { entry: entryError("400", "invalid", "Entry must have a request") };
   }
 
   const { method, url } = entry.request;
@@ -36,67 +38,65 @@ function validateEntry(
 
   const resourceConfig = config.resources.get(resourceType);
   if (!resourceConfig) {
-    return {
-      entry: { response: { status: "404", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-found", diagnostics: `Resource type ${resourceType} not supported` }] } } },
-    };
+    return { entry: entryError("404", "not-found", `Resource type ${resourceType} not supported`) };
   }
 
   switch (method) {
     case "POST": {
       if (!resourceConfig.interactions.has("create")) {
-        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Create not supported for ${resourceType}` }] } } } };
+        return { entry: entryError("405", "not-supported", `Create not supported for ${resourceType}`) };
       }
       if (!entry.resource) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "POST entry must have a resource" }] } } } };
+        return { entry: entryError("400", "invalid", "POST entry must have a resource") };
       }
       const bodyResourceType = (entry.resource as FhirResource).resourceType;
       if (bodyResourceType && bodyResourceType !== resourceType) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: `Resource type ${bodyResourceType} does not match URL type ${resourceType}` }] } } } };
+        return { entry: entryError("400", "invalid", `Resource type ${bodyResourceType} does not match URL type ${resourceType}`) };
       }
       return { entry, error: "create" };
     }
     case "PUT": {
       if (!id) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PUT requires an id in the URL" }] } } } };
+        return { entry: entryError("400", "invalid", "PUT requires an id in the URL") };
       }
       if (!resourceConfig.interactions.has("update")) {
-        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Update not supported for ${resourceType}` }] } } } };
+        return { entry: entryError("405", "not-supported", `Update not supported for ${resourceType}`) };
       }
       if (!entry.resource) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PUT entry must have a resource" }] } } } };
+        return { entry: entryError("400", "invalid", "PUT entry must have a resource") };
       }
       return { entry, error: "update" };
     }
     case "DELETE": {
       if (!resourceConfig.interactions.has("delete")) {
-        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Delete not supported for ${resourceType}` }] } } } };
+        return { entry: entryError("405", "not-supported", `Delete not supported for ${resourceType}`) };
       }
       const deleteId = id ?? (entry.resource as FhirResource)?.id;
       if (!deleteId) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "DELETE requires an id" }] } } } };
+        return { entry: entryError("400", "invalid", "DELETE requires an id") };
       }
       return { entry, error: "delete" };
     }
     case "PATCH": {
       if (!resourceConfig.interactions.has("patch")) {
-        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Patch not supported for ${resourceType}` }] } } } };
+        return { entry: entryError("405", "not-supported", `Patch not supported for ${resourceType}`) };
       }
       if (!id) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH requires an id in the URL" }] } } } };
+        return { entry: entryError("400", "invalid", "PATCH requires an id in the URL") };
       }
       return { entry, error: "patch" };
     }
     case "GET": {
       if (!id) {
-        return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "GET in bundle requires an id" }] } } } };
+        return { entry: entryError("400", "invalid", "GET in bundle requires an id") };
       }
       if (!resourceConfig.interactions.has("read")) {
-        return { entry: { response: { status: "405", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "not-supported", diagnostics: `Read not supported for ${resourceType}` }] } } } };
+        return { entry: entryError("405", "not-supported", `Read not supported for ${resourceType}`) };
       }
       return { entry, error: "read" };
     }
     default:
-      return { entry: { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: `Unsupported method: ${method}` }] } } } };
+      return { entry: entryError("400", "invalid", `Unsupported method: ${method}`) };
   }
 }
 
@@ -195,12 +195,12 @@ function executeEntry(
       }
       const patchOps = entry.resource as unknown as Array<{ op: string; path: string; value?: unknown }>;
       if (!Array.isArray(patchOps) || patchOps.length === 0) {
-        return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH requires a non-empty array of operations" }] } } };
+        return entryError("422", "invalid", "PATCH requires a non-empty array of operations");
       }
       try {
         const patched = applyPatch(existing as Record<string, unknown>, patchOps);
         if ((patched as FhirResource).resourceType !== resourceType) {
-          return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: "PATCH cannot change resourceType" }] } } };
+          return entryError("422", "invalid", "PATCH cannot change resourceType");
         }
         const updated = store.update(resourceType, id!, { ...patched, id: id! } as FhirResource);
         return {
@@ -213,16 +213,15 @@ function executeEntry(
         },
       };
     } catch (err) {
-
         if (err instanceof PatchError) {
           const code = err.message.includes("test failed") ? "precondition-failed" : "invalid";
-          return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code, diagnostics: err.message }] } } };
+          return entryError("422", code, err.message);
         }
-        return { response: { status: "422", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: err instanceof Error ? err.message : "Patch failed" }] } } };
+        return entryError("422", "invalid", err instanceof Error ? err.message : "Patch failed");
       }
     }
     default:
-      return { response: { status: "400", outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: "invalid", diagnostics: `Unsupported method: ${method}` }] } } };
+      return entryError("400", "invalid", `Unsupported method: ${method}`);
   }
 }
 
@@ -259,15 +258,7 @@ function validateResourceEntry(
 }
 
 function makeTransactionError(): BundleEntry {
-  return {
-    response: {
-      status: "422",
-      outcome: {
-        resourceType: "OperationOutcome",
-        issue: [{ severity: "error", code: "transaction-failed", diagnostics: "Transaction aborted due to validation errors" }],
-      },
-    },
-  };
+  return entryError("422", "transaction-failed", "Transaction aborted due to validation errors");
 }
 
 export async function handleBatch(
@@ -353,15 +344,9 @@ export async function handleBatch(
         responseEntries[r.index] = r.entry;
       }
     } catch (err) {
-      responseEntries = validEntries.map(() => ({
-        response: {
-          status: "422",
-          outcome: {
-            resourceType: "OperationOutcome",
-            issue: [{ severity: "error", code: "transaction-failed", diagnostics: err instanceof Error ? err.message : "Transaction failed" }],
-          },
-        },
-      }));
+      responseEntries = validEntries.map(() =>
+        entryError("422", "transaction-failed", err instanceof Error ? err.message : "Transaction failed")
+      );
     }
     return Response.json(
       { resourceType: "Bundle", type: "transaction-response", entry: responseEntries },
@@ -379,7 +364,7 @@ export async function handleBatch(
       } catch (err) {
         const message = err instanceof Error ? err.message : "Unknown error";
         const status = message === "not-found" ? "404" : "500";
-        responseEntries.push({ response: { status, outcome: { resourceType: "OperationOutcome", issue: [{ severity: "error", code: status === "404" ? "not-found" : "exception", diagnostics: message }] } } });
+        responseEntries.push(entryError(status, status === "404" ? "not-found" : "exception", message));
       }
     }
   }
