@@ -13,6 +13,29 @@ import { resolvePathNodes, formatLocation } from "./element-path.ts";
 
 const MAX_DEPTH = 64;
 
+interface ResolvedElement {
+  leafName: string;
+  resolved: Array<{ node: unknown; pathWithIndices: string[] }>;
+}
+
+function resolveElement(
+  resource: Record<string, unknown>,
+  elementPath: string
+): ResolvedElement | null {
+  const pathParts = elementPath.split(".");
+  const relativePath = pathParts.slice(1);
+  if (relativePath.length === 0) return null;
+
+  const leafName = relativePath[relativePath.length - 1]!;
+
+  if (relativePath.length === 1) {
+    return { leafName, resolved: [{ node: resource, pathWithIndices: [] }] };
+  }
+
+  const parentPath = relativePath.slice(0, -1);
+  return { leafName, resolved: resolvePathNodes(resource, parentPath) };
+}
+
 export interface ValidationOptions {
   checkPrimitives?: boolean;
   checkFixedValues?: boolean;
@@ -120,39 +143,20 @@ function validateMustSupport(
   if (!element.mustSupport) return;
   if (element.min === undefined || element.min <= 0) return;
 
-  const pathParts = element.path.split(".");
-  const relativePath = pathParts.slice(1);
-  if (relativePath.length === 0) return;
+  const resolved = resolveElement(resource, element.path);
+  if (!resolved) return;
 
-  if (relativePath.length === 1) {
-    const leafName = relativePath[0]!;
-    const value = resource[leafName];
-    const count = value === undefined || value === null ? 0 : (Array.isArray(value) ? value.length : 1);
-
-    if (count === 0) {
-      issues.push({
-        severity: "error",
-        code: "must-support",
-        diagnostics: `Required element ${element.path} is missing`,
-        location: `${resourceType}.${leafName}`,
-      });
-    }
-    return;
-  }
-
-  const parentPath = relativePath.slice(0, -1);
-  const leafName = relativePath[relativePath.length - 1]!;
-  const resolved = resolvePathNodes(resource, parentPath);
-
-  for (const { node, pathWithIndices } of resolved) {
+  for (const { node, pathWithIndices } of resolved.resolved) {
     if (typeof node !== "object" || node === null) continue;
 
     const nodeObj = node as Record<string, unknown>;
-    const leafValue = nodeObj[leafName];
+    const leafValue = nodeObj[resolved.leafName];
     const count = leafValue === undefined || leafValue === null ? 0 : (Array.isArray(leafValue) ? leafValue.length : 1);
 
     if (count === 0) {
-      const location = formatLocation(resourceType, pathWithIndices, leafName);
+      const location = pathWithIndices.length === 0
+        ? `${resourceType}.${resolved.leafName}`
+        : formatLocation(resourceType, pathWithIndices, resolved.leafName);
       issues.push({
         severity: "error",
         code: "must-support",
@@ -172,21 +176,14 @@ function validateBinding(
 ): void {
   if (!element.binding) return;
 
-  const pathParts = element.path.split(".");
-  const relativePath = pathParts.slice(1);
-  if (relativePath.length === 0) return;
+  const resolved = resolveElement(resource, element.path);
+  if (!resolved) return;
 
-  const leafName = relativePath[relativePath.length - 1]!;
-
-  const resolved = relativePath.length === 1
-    ? [{ node: resource, pathWithIndices: [] }]
-    : resolvePathNodes(resource, relativePath.slice(0, -1));
-
-  for (const { node, pathWithIndices } of resolved) {
+  for (const { node, pathWithIndices } of resolved.resolved) {
     if (typeof node !== "object" || node === null) continue;
 
     const nodeObj = node as Record<string, unknown>;
-    const leafValue = nodeObj[leafName];
+    const leafValue = nodeObj[resolved.leafName];
 
     if (leafValue === undefined || leafValue === null) continue;
 
@@ -214,9 +211,9 @@ function validateBinding(
       }
 
       if (code !== undefined) {
-        const location = relativePath.length === 1
-          ? `${resourceType}.${leafName}`
-          : formatLocation(resourceType, pathWithIndices, leafName);
+        const location = pathWithIndices.length === 0
+          ? `${resourceType}.${resolved.leafName}`
+          : formatLocation(resourceType, pathWithIndices, resolved.leafName);
         const bindingIssues = checkBinding(code, system, element.binding, codeSystems);
         for (const issue of bindingIssues) {
           issues.push({ ...issue, location });
@@ -245,9 +242,8 @@ function validateFhirPathConstraints(
 ): void {
   if (!element.constraint || element.constraint.length === 0) return;
 
-  const pathParts = element.path.split(".");
-  const relativePath = pathParts.slice(1);
-  if (relativePath.length === 0) return;
+  const resolved = resolveElement(resource, element.path);
+  if (!resolved) return;
 
   for (const constraint of element.constraint) {
     if (!constraint.expression) continue;
@@ -262,27 +258,21 @@ function validateFhirPathConstraints(
           severity: "warning",
           code: "invalid-fhirpath",
           diagnostics: `Failed to parse FHIRPath expression: ${constraint.expression}`,
-          location: `${resourceType}.${relativePath.join(".")}`,
+          location: `${resourceType}.${element.path.split(".").slice(1).join(".")}`,
         });
         continue;
       }
     }
 
-    const leafName = relativePath[relativePath.length - 1]!;
-
-    const resolved = relativePath.length === 1
-      ? [{ node: resource, pathWithIndices: [] }]
-      : resolvePathNodes(resource, relativePath.slice(0, -1));
-
-    for (const { node, pathWithIndices } of resolved) {
+    for (const { node, pathWithIndices } of resolved.resolved) {
       if (typeof node !== "object" || node === null) continue;
 
       let evalContext: unknown;
-      if (relativePath.length === 1) {
+      if (pathWithIndices.length === 0) {
         evalContext = node;
       } else {
         const nodeObj = node as Record<string, unknown>;
-        evalContext = nodeObj[leafName];
+        evalContext = nodeObj[resolved.leafName];
         if (evalContext === undefined || evalContext === null) continue;
       }
 
@@ -290,9 +280,9 @@ function validateFhirPathConstraints(
         const result = evaluate(ast, evalContext as Record<string, unknown>);
         if (result === false || result === undefined || result === null) {
           const severity = constraint.severity === "error" ? "error" : "warning";
-          const location = relativePath.length === 1
-            ? `${resourceType}.${relativePath[0]}`
-            : formatLocation(resourceType, pathWithIndices, leafName);
+          const location = pathWithIndices.length === 0
+            ? `${resourceType}.${resolved.leafName}`
+            : formatLocation(resourceType, pathWithIndices, resolved.leafName);
           issues.push({
             severity,
             code: "invariant",
@@ -305,7 +295,7 @@ function validateFhirPathConstraints(
           severity: "warning",
           code: "fhirpath-evaluation-error",
           diagnostics: `Failed to evaluate FHIRPath: ${constraint.expression}`,
-          location: `${resourceType}.${relativePath.join(".")}`,
+          location: `${resourceType}.${element.path.split(".").slice(1).join(".")}`,
         });
       }
     }
@@ -323,81 +313,20 @@ function validateElementPipeline(
 ): void {
   if (depth > MAX_DEPTH) return;
 
-  const pathParts = element.path.split(".");
-  const relativePath = pathParts.slice(1);
-
-  if (relativePath.length === 0) return;
+  const resolved = resolveElement(resource, element.path);
+  if (!resolved) return;
 
   const cardinalityIssues = checkCardinality(resource, element, resourceType);
   issues.push(...cardinalityIssues);
 
-  if (relativePath.length === 1) {
-    const leafName = relativePath[0]!;
-    const value = resource[leafName];
+  const childKey = element.path.split(".").slice(1).join(".");
 
-    if (options.checkPrimitives && element.type && value !== undefined && value !== null) {
-      const values = Array.isArray(value) ? value : [value];
-      for (const v of values) {
-        if (v === undefined || v === null) continue;
-        const primitiveIssues = validatePrimitive(v, element);
-        issues.push(...primitiveIssues);
-      }
-    }
-
-    if (options.checkFixedValues && value !== undefined && value !== null) {
-      const values = Array.isArray(value) ? value : [value];
-      for (const v of values) {
-        if (v === undefined || v === null) continue;
-        const fixedIssues = checkFixedValue(v, element);
-        issues.push(...fixedIssues);
-      }
-    }
-
-    if (element.constraint) {
-      // FHIRPath constraints will be evaluated in Phase 4
-    }
-
-    if (Array.isArray(value) && element.type) {
-      const elementTypeName = element.type[0]?.code;
-      if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
-        const childKey = element.path.split(".").slice(1).join(".");
-        const childElements = elementIndex.get(childKey);
-        if (childElements && childElements.length > 0) {
-          for (let i = 0; i < value.length; i++) {
-            const item = value[i];
-            if (typeof item === "object" && item !== null && !Array.isArray(item)) {
-              const itemLocation = `${resourceType}.${leafName}[${i}]`;
-              const complexIssues = checkComplexType(item, element, itemLocation, childElements);
-              issues.push(...complexIssues);
-            }
-          }
-        }
-      }
-    } else if (typeof value === "object" && value !== null && !Array.isArray(value) && element.type) {
-      const elementTypeName = element.type[0]?.code;
-      if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
-        const childKey = element.path.split(".").slice(1).join(".");
-        const childElements = elementIndex.get(childKey);
-        if (childElements && childElements.length > 0) {
-          const location = `${resourceType}.${leafName}`;
-          const complexIssues = checkComplexType(value, element, location, childElements);
-          issues.push(...complexIssues);
-        }
-      }
-    }
-
-    return;
-  }
-
-  const parentPath = relativePath.slice(0, -1);
-  const leafName = relativePath[relativePath.length - 1]!;
-  const resolved = resolvePathNodes(resource, parentPath);
-
-  for (const { node, pathWithIndices } of resolved) {
+  for (const { node, pathWithIndices } of resolved.resolved) {
     if (typeof node !== "object" || node === null) continue;
 
     const nodeObj = node as Record<string, unknown>;
-    const leafValue = nodeObj[leafName];
+    const leafValue = nodeObj[resolved.leafName];
+    const location = formatLocation(resourceType, pathWithIndices, resolved.leafName);
 
     if (options.checkPrimitives && element.type && leafValue !== undefined && leafValue !== null) {
       const values = Array.isArray(leafValue) ? leafValue : [leafValue];
@@ -405,8 +334,8 @@ function validateElementPipeline(
         const v = values[vi];
         if (v === undefined || v === null) continue;
         const itemSuffix = Array.isArray(leafValue) ? `[${vi}]` : "";
-        const location = formatLocation(resourceType, pathWithIndices, `${leafName}${itemSuffix}`);
-        const primitiveElement = { ...element, path: location };
+        const itemLocation = `${location}${itemSuffix}`;
+        const primitiveElement = { ...element, path: itemLocation };
         const primitiveIssues = validatePrimitive(v, primitiveElement);
         issues.push(...primitiveIssues);
       }
@@ -418,8 +347,8 @@ function validateElementPipeline(
         const v = values[vi];
         if (v === undefined || v === null) continue;
         const itemSuffix = Array.isArray(leafValue) ? `[${vi}]` : "";
-        const location = formatLocation(resourceType, pathWithIndices, `${leafName}${itemSuffix}`);
-        const fixedElement = { ...element, path: location };
+        const itemLocation = `${location}${itemSuffix}`;
+        const fixedElement = { ...element, path: itemLocation };
         const fixedIssues = checkFixedValue(v, fixedElement);
         issues.push(...fixedIssues);
       }
@@ -428,10 +357,8 @@ function validateElementPipeline(
     if (Array.isArray(leafValue) && element.type) {
       const elementTypeName = element.type[0]?.code;
       if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
-        const childKey = relativePath.join(".");
         const childElements = elementIndex.get(childKey);
         if (childElements && childElements.length > 0) {
-          const location = formatLocation(resourceType, pathWithIndices, leafName);
           for (let i = 0; i < leafValue.length; i++) {
             const item = leafValue[i];
             if (typeof item === "object" && item !== null && !Array.isArray(item)) {
@@ -445,10 +372,8 @@ function validateElementPipeline(
     } else if (typeof leafValue === "object" && leafValue !== null && !Array.isArray(leafValue) && element.type) {
       const elementTypeName = element.type[0]?.code;
       if (elementTypeName === "BackboneElement" || elementTypeName === "ComplexType") {
-        const childKey = relativePath.join(".");
         const childElements = elementIndex.get(childKey);
         if (childElements && childElements.length > 0) {
-          const location = formatLocation(resourceType, pathWithIndices, leafName);
           const complexIssues = checkComplexType(leafValue, element, location, childElements);
           issues.push(...complexIssues);
         }
