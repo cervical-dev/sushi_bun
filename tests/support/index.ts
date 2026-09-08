@@ -1,4 +1,4 @@
-export { createTestServer, createTestServerWithCapability } from "./server.ts";
+export { createTestServer, createTestServerWithCapability, createTestStore } from "./server.ts";
 export type { TestServer } from "./server.ts";
 
 export { createClient, expectCreated, expectOutcome, expectEtag, expectLocation, expectBundle, expectLastModified } from "./client.ts";

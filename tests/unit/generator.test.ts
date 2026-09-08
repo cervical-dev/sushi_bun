@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { createTestStore } from "../helpers.ts";
+import { createTestStore } from "../support/index.ts";
 import { buildRoutes } from "../../src/router/generator.ts";
 import { sqliteProvider } from "../../src/store/sqlite-provider.ts";
 import { defaultHandlers } from "../../src/handlers/default.ts";
