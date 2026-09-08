@@ -1,106 +1,35 @@
 import type { StructureDefinitionElement, ValidationIssue } from "../types.ts";
 import { countValue, parseMax } from "../element-path.ts";
 
+const FIXED_PROPS: Array<{ key: keyof StructureDefinitionElement; quoted: boolean }> = [
+  { key: "fixedCode", quoted: true },
+  { key: "fixedBoolean", quoted: false },
+  { key: "fixedString", quoted: true },
+  { key: "fixedUri", quoted: true },
+  { key: "fixedUrl", quoted: true },
+  { key: "fixedId", quoted: true },
+  { key: "fixedInteger", quoted: false },
+  { key: "fixedDecimal", quoted: false },
+];
+
 export function checkFixedValue(
   value: unknown,
   element: StructureDefinitionElement
 ): ValidationIssue[] {
-  if (element.fixedCode !== undefined) {
-    if (value !== element.fixedCode) {
+  for (const { key, quoted } of FIXED_PROPS) {
+    const expected = element[key];
+    if (expected === undefined) continue;
+    if (value !== expected) {
+      const display = quoted ? `"${expected}"` : String(expected);
       return [{
         severity: "error",
         code: "fixed-value",
-        diagnostics: `Expected fixed value "${element.fixedCode}", got "${value}"`,
+        diagnostics: `Expected fixed value ${display}, got "${value}"`,
         location: element.path,
       }];
     }
     return [];
   }
-
-  if (element.fixedBoolean !== undefined) {
-    if (value !== element.fixedBoolean) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value ${element.fixedBoolean}, got ${value}`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedString !== undefined) {
-    if (value !== element.fixedString) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value "${element.fixedString}", got "${value}"`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedUri !== undefined) {
-    if (value !== element.fixedUri) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value "${element.fixedUri}", got "${value}"`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedId !== undefined) {
-    if (value !== element.fixedId) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value "${element.fixedId}", got "${value}"`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedInteger !== undefined) {
-    if (value !== element.fixedInteger) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value ${element.fixedInteger}, got ${value}`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedDecimal !== undefined) {
-    if (value !== element.fixedDecimal) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value ${element.fixedDecimal}, got ${value}`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
-  if (element.fixedUrl !== undefined) {
-    if (value !== element.fixedUrl) {
-      return [{
-        severity: "error",
-        code: "fixed-value",
-        diagnostics: `Expected fixed value "${element.fixedUrl}", got "${value}"`,
-        location: element.path,
-      }];
-    }
-    return [];
-  }
-
   return [];
 }
 
