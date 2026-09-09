@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite";
 import type { FhirResource, SearchFilter, SearchParamConfig } from "../fhir/types.ts";
-import type { ResourceStore, StorageProvider, VersionRecord, TypeHistoryRecord } from "./types.ts";
+import type { ResourceStore, StorageProvider, VersionEntry, HistoryEntry } from "./types.ts";
 import { randomUUID } from "crypto";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
@@ -429,22 +429,37 @@ function createSqliteResourceStore(db: Database): ResourceStore {
       return { versionId: row.version_id, isDeleted: row.is_deleted === 1 };
     },
 
-    listVersions(resourceType: string, id: string): VersionRecord[] {
-      return readAllVersionsStmt.all({ $id: id, $resource_type: resourceType }) as VersionRecord[];
+    listVersions(resourceType: string, id: string): VersionEntry[] {
+      const rows = readAllVersionsStmt.all({ $id: id, $resource_type: resourceType }) as { version_id: number; last_updated: string }[];
+      return rows.map((r) => ({ versionId: r.version_id, lastUpdated: r.last_updated }));
     },
 
-    listTypeHistory(resourceType: string, since?: string): TypeHistoryRecord[] {
-      if (since) {
-        return typeHistorySinceStmt.all({ $resource_type: resourceType, $since: since }) as TypeHistoryRecord[];
-      }
-      return typeHistoryStmt.all({ $resource_type: resourceType }) as TypeHistoryRecord[];
+    listTypeHistory(resourceType: string, since?: string): HistoryEntry[] {
+      const rows = (since
+        ? typeHistorySinceStmt.all({ $resource_type: resourceType, $since: since })
+        : typeHistoryStmt.all({ $resource_type: resourceType })
+      ) as ResourceRecord[];
+      return rows.map((r) => ({
+        id: r.id,
+        resourceType: r.resource_type,
+        versionId: r.version_id,
+        lastUpdated: r.last_updated,
+        resource: toResource(r),
+      }));
     },
 
-    listSystemHistory(since?: string): TypeHistoryRecord[] {
-      if (since) {
-        return systemHistorySinceStmt.all({ $since: since }) as TypeHistoryRecord[];
-      }
-      return systemHistoryStmt.all() as TypeHistoryRecord[];
+    listSystemHistory(since?: string): HistoryEntry[] {
+      const rows = (since
+        ? systemHistorySinceStmt.all({ $since: since })
+        : systemHistoryStmt.all()
+      ) as ResourceRecord[];
+      return rows.map((r) => ({
+        id: r.id,
+        resourceType: r.resource_type,
+        versionId: r.version_id,
+        lastUpdated: r.last_updated,
+        resource: toResource(r),
+      }));
     },
 
     search(resourceType: string, filters: SearchFilter[], searchParams: Map<string, SearchParamConfig>, offset = 0, limit = 20): FhirResource[] {

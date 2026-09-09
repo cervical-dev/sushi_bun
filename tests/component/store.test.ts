@@ -99,7 +99,7 @@ describe("ResourceStore", () => {
 
     const versions = store.listVersions("Patient", created.id!);
     expect(versions.length).toBe(2);
-    expect(versions[1]!.version_id).toBe(2);
+    expect(versions[1]!.versionId).toBe(2);
   });
 
   it("returns false when deleting non-existent resource", () => {
@@ -107,16 +107,31 @@ describe("ResourceStore", () => {
     expect(deleted).toBe(false);
   });
 
-  it("listVersions returns correct shape", () => {
+  it("listVersions returns VersionEntry shape", () => {
     const patient = { resourceType: "Patient", name: [{ family: "Smith" }] };
     const created = store.create("Patient", patient);
     store.update("Patient", created.id!, { ...patient, gender: "male" });
 
     const versions = store.listVersions("Patient", created.id!);
     expect(versions.length).toBe(2);
-    expect(versions[0]!.version_id).toBe(1);
-    expect(versions[0]!.last_updated).toBeDefined();
-    expect(versions[1]!.version_id).toBe(2);
+    expect(versions[0]!.versionId).toBe(1);
+    expect(versions[0]!.lastUpdated).toBeDefined();
+    expect(versions[1]!.versionId).toBe(2);
+    expect(versions[1]!.lastUpdated).toBeDefined();
+  });
+
+  it("listTypeHistory returns HistoryEntry shape", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
+    store.create("Observation", { resourceType: "Observation", status: "final" });
+
+    const entries = store.listTypeHistory("Patient");
+    expect(entries.length).toBe(1);
+    expect(entries[0]!.id).toBeDefined();
+    expect(entries[0]!.resourceType).toBe("Patient");
+    expect(entries[0]!.versionId).toBe(1);
+    expect(entries[0]!.lastUpdated).toBeDefined();
+    expect(entries[0]!.resource).toBeDefined();
+    expect(entries[0]!.resource.resourceType).toBe("Patient");
   });
 
   it("searches with FHIR SearchFilters (token type)", () => {

@@ -1,5 +1,5 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
-import type { ResourceStore, TypeHistoryRecord } from "../store/types.ts";
+import type { ResourceStore } from "../store/types.ts";
 import { createOperationOutcome } from "./outcome.ts";
 import { resolveContext, historyEntry } from "./request-context.ts";
 
@@ -21,19 +21,6 @@ function buildHistoryBundle(url: URL, entries: BundleEntry[], selfUrl: string): 
   });
 }
 
-function historyRecordToEntry(v: TypeHistoryRecord): BundleEntry {
-  const resource = JSON.parse(v.data);
-  resource.id = v.id;
-  resource.meta = { ...resource.meta, versionId: String(v.version_id), lastUpdated: v.last_updated };
-  return historyEntry({
-    resourceType: v.resource_type,
-    id: v.id,
-    versionId: v.version_id,
-    lastUpdated: v.last_updated,
-    resource,
-  });
-}
-
 export function handleHistory(req: Request, config: ResourceConfig, store: ResourceStore): Response {
   const resolved = resolveContext(req, config, { interaction: "history-instance", expectId: true });
   if (!resolved.ok) return resolved.outcome;
@@ -48,9 +35,9 @@ export function handleHistory(req: Request, config: ResourceConfig, store: Resou
     historyEntry({
       resourceType,
       id: id!,
-      versionId: v.version_id,
-      lastUpdated: v.last_updated,
-      resource: store.readVersion(resourceType, id!, v.version_id) ?? undefined,
+      versionId: v.versionId,
+      lastUpdated: v.lastUpdated,
+      resource: store.readVersion(resourceType, id!, v.versionId) ?? undefined,
     })
   );
 
@@ -64,7 +51,15 @@ export function handleTypeHistory(req: Request, config: ResourceConfig, store: R
   const since = url.searchParams.get("_since") ?? undefined;
 
   const records = store.listTypeHistory(resourceType, since);
-  const entries = records.map(historyRecordToEntry);
+  const entries: BundleEntry[] = records.map((r) =>
+    historyEntry({
+      resourceType: r.resourceType,
+      id: r.id,
+      versionId: r.versionId,
+      lastUpdated: r.lastUpdated,
+      resource: r.resource,
+    })
+  );
   return buildHistoryBundle(url, entries, `/${resourceType}/_history`);
 }
 
@@ -73,6 +68,14 @@ export function handleSystemHistory(req: Request, store: ResourceStore): Respons
   const since = url.searchParams.get("_since") ?? undefined;
 
   const records = store.listSystemHistory(since);
-  const entries = records.map(historyRecordToEntry);
+  const entries: BundleEntry[] = records.map((r) =>
+    historyEntry({
+      resourceType: r.resourceType,
+      id: r.id,
+      versionId: r.versionId,
+      lastUpdated: r.lastUpdated,
+      resource: r.resource,
+    })
+  );
   return buildHistoryBundle(url, entries, `/_history`);
 }

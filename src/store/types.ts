@@ -1,17 +1,16 @@
 import type { FhirResource, SearchFilter, SearchParamConfig } from "../fhir/types.ts";
 
-export interface VersionRecord {
-  version_id: number;
-  last_updated: string;
-  data: string;
+export interface VersionEntry {
+  versionId: number;
+  lastUpdated: string;
 }
 
-export interface TypeHistoryRecord {
+export interface HistoryEntry {
   id: string;
-  resource_type: string;
-  version_id: number;
-  last_updated: string;
-  data: string;
+  resourceType: string;
+  versionId: number;
+  lastUpdated: string;
+  resource: FhirResource;
 }
 
 export interface ResourceStore {
@@ -23,9 +22,9 @@ export interface ResourceStore {
   exists(resourceType: string, id: string): boolean;
   isDeleted(resourceType: string, id: string): boolean;
   currentVersion(resourceType: string, id: string): { versionId: number; isDeleted: boolean } | null;
-  listVersions(resourceType: string, id: string): VersionRecord[];
-  listTypeHistory(resourceType: string, since?: string): TypeHistoryRecord[];
-  listSystemHistory(since?: string): TypeHistoryRecord[];
+  listVersions(resourceType: string, id: string): VersionEntry[];
+  listTypeHistory(resourceType: string, since?: string): HistoryEntry[];
+  listSystemHistory(since?: string): HistoryEntry[];
   search(resourceType: string, filters: SearchFilter[], searchParams: Map<string, SearchParamConfig>, offset?: number, limit?: number): FhirResource[];
   count(resourceType: string, filters: SearchFilter[], searchParams: Map<string, SearchParamConfig>): number;
   transaction<T>(fn: () => T): T;
