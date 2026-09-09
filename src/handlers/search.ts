@@ -1,5 +1,5 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
-import type { ResourceStore, FilterTranslator, SqlFilter } from "../store/types.ts";
+import type { ResourceStore } from "../store/types.ts";
 import { parseSearchParams } from "../router/params.ts";
 import { createOperationOutcome } from "./outcome.ts";
 import { resolveContext } from "./request-context.ts";
@@ -7,8 +7,7 @@ import { resolveContext } from "./request-context.ts";
 export function handleSearch(
   req: Request,
   config: ResourceConfig,
-  store: ResourceStore,
-  translateFilters: FilterTranslator
+  store: ResourceStore
 ): Response {
   const resolved = resolveContext(req, config, { interaction: "search-type" });
   if (!resolved.ok) return resolved.outcome;
@@ -21,10 +20,9 @@ export function handleSearch(
   const offset = Math.max(offsetParam ? (parseInt(offsetParam, 10) || 0) : 0, 0);
 
   const searchFilters = parseSearchParams(url.searchParams.toString(), config.searchParams);
-  const filters = translateFilters(searchFilters, config.searchParams) as SqlFilter[];
 
-  const total = store.count(resourceType, filters);
-  const resources = store.search(resourceType, filters, offset, count);
+  const total = store.count(resourceType, searchFilters, config.searchParams);
+  const resources = store.search(resourceType, searchFilters, config.searchParams, offset, count);
 
   const entries: BundleEntry[] = resources.map((resource) => ({
     fullUrl: `${resourceType}/${resource.id}`,
@@ -69,8 +67,7 @@ export function handleSearch(
 export async function handlePostSearch(
   req: Request,
   config: ResourceConfig,
-  store: ResourceStore,
-  translateFilters: FilterTranslator
+  store: ResourceStore
 ): Promise<Response> {
   const contentType = req.headers.get("Content-Type") ?? "";
   if (!contentType.includes("application/x-www-form-urlencoded")) {
@@ -91,5 +88,5 @@ export async function handlePostSearch(
   }
 
   const modifiedReq = new Request(url.toString(), { method: "GET" });
-  return handleSearch(modifiedReq, config, store, translateFilters);
+  return handleSearch(modifiedReq, config, store);
 }

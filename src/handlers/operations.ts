@@ -1,6 +1,6 @@
 import type { ResourceConfig } from "../fhir/types.ts";
 import { getProfileUrl } from "../fhir/types.ts";
-import type { ResourceStore, SqlFilter } from "../store/types.ts";
+import type { ResourceStore } from "../store/types.ts";
 import type { ValidatorRegistry } from "../fhir/validator-loader.ts";
 import { validateResource } from "../fhir/validator.ts";
 import { createOperationOutcome } from "./outcome.ts";
@@ -32,7 +32,7 @@ export function handleOperation(
 }
 
 function handleEverything(resourceType: string, store: ResourceStore): Response {
-  const resources = store.search(resourceType, [] as SqlFilter[]);
+  const resources = store.search(resourceType, [], new Map());
 
   const bundle = {
     resourceType: "Bundle",

@@ -1,13 +1,11 @@
 import { Database } from "bun:sqlite";
-import { createDatabase } from "../../src/db.ts";
 import { parseCapabilityStatement } from "../../src/fhir/capability.ts";
 import { buildRoutes } from "../../src/router/generator.ts";
 import { defaultHandlers } from "../../src/handlers/default.ts";
 import { loadValidators } from "../../src/fhir/validator-loader.ts";
 import { fallbackFetch } from "../../src/router/fallback.ts";
 import { loadSearchParameters, applyResolvedMapping } from "../../src/fhir/search-param-loader.ts";
-import { createResourceStore } from "../../src/store/resource-store.ts";
-import { sqliteProvider } from "../../src/store/sqlite-provider.ts";
+import { createSqliteStore } from "../../src/store/sqlite-provider.ts";
 import { writeFileSync, unlinkSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -21,8 +19,7 @@ export interface TestServer {
 }
 
 export function createTestStore(): { store: ResourceStore; db: Database } {
-  const db = createDatabase();
-  return { store: createResourceStore(db), db };
+  return createSqliteStore();
 }
 
 async function buildServer(
@@ -44,10 +41,8 @@ async function buildServer(
 
   applyResolvedMapping(config, searchParameters);
 
-  const db = createDatabase();
-  const store = createResourceStore(db);
-  const provider = sqliteProvider();
-  const handlers = await defaultHandlers(store, validators, provider.translateFilters);
+  const { store, db } = createSqliteStore();
+  const handlers = await defaultHandlers(store, validators);
   const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({

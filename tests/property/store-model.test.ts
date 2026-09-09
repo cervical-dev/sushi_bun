@@ -1,14 +1,14 @@
 import { describe, it, expect } from "bun:test";
 import * as fc from "fast-check";
-import { createDatabase } from "../../src/db.ts";
-import { createResourceStore } from "../../src/store/resource-store.ts";
+import { createSqliteStore } from "../../src/store/sqlite-provider.ts";
+import type { ResourceStore } from "../../src/store/types.ts";
+
+type Store = ResourceStore;
 
 interface StoreModel {
   ids: string[];
   resources: Map<string, { version: number; deleted: boolean; body: any }>;
 }
-
-type Store = ReturnType<typeof createResourceStore>;
 
 function pickId(m: StoreModel, idxOffset: number): string | undefined {
   if (m.ids.length === 0) return undefined;
@@ -158,11 +158,9 @@ describe("ResourceStore Model-Based Tests", () => {
           fc.integer({ min: 0, max: 99 }).map(i => new IsDeletedCommand(i)),
         ], { maxCommands: 20 }),
         async (cmds) => {
-          const db = createDatabase(":memory:");
-          const store = createResourceStore(db);
+          const { store, db } = createSqliteStore(":memory:");
           const model: StoreModel = { ids: [], resources: new Map() };
           await fc.asyncModelRun(() => ({ model, real: store }), cmds);
-          db.close();
           db.close();
         }
       ),

@@ -1,16 +1,13 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { createTestStore } from "../support/index.ts";
 import { buildRoutes } from "../../src/router/generator.ts";
-import { sqliteProvider } from "../../src/store/sqlite-provider.ts";
 import { defaultHandlers } from "../../src/handlers/default.ts";
 import type { RouteConfig } from "../../src/fhir/types.ts";
 
 describe("buildRoutes", () => {
-  const provider = sqliteProvider();
-
   async function makeRoutes(config: RouteConfig) {
     const { store } = createTestStore();
-    const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
+    const handlers = await defaultHandlers(store);
     return buildRoutes(config, {}, handlers);
   }
 
@@ -163,35 +160,10 @@ describe("buildRoutes", () => {
   });
 });
 
-describe("defaultHandlers backward compatibility", () => {
-  it("supports old 2-arg form (store, translateFilters) without crashing on search", async () => {
+describe("defaultHandlers", () => {
+  it("supports store + validators form", async () => {
     const { store } = createTestStore();
-    const provider = sqliteProvider();
-    const handlers = await defaultHandlers(store, provider.translateFilters as any);
-    expect(handlers).toBeDefined();
-    expect(handlers.handleCreate).toBeDefined();
-    const config = {
-      type: "Patient",
-      interactions: new Set(["search-type"]),
-      searchParams: new Map(),
-      operations: [],
-      versioning: "no-version",
-      readHistory: false,
-      updateCreate: false,
-      conditionalCreate: false,
-      conditionalRead: "not-supported",
-      conditionalUpdate: false,
-      conditionalDelete: "not-supported",
-    };
-    const req = new Request("http://localhost/Patient?name=Smith", { method: "GET" });
-    const res = await handlers.handleSearch(req, config);
-    expect(res.status).not.toBe(500);
-  });
-
-  it("supports new 3-arg form (store, validators, translateFilters)", async () => {
-    const { store } = createTestStore();
-    const provider = sqliteProvider();
-    const handlers = await defaultHandlers(store, undefined, provider.translateFilters);
+    const handlers = await defaultHandlers(store);
     expect(handlers).toBeDefined();
     expect(handlers.handleCreate).toBeDefined();
   });

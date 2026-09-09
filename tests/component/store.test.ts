@@ -1,11 +1,9 @@
 import { describe, it, expect, beforeEach } from "bun:test";
-import { createDatabase } from "../../src/db.ts";
-import { createResourceStore } from "../../src/store/resource-store.ts";
+import { createSqliteStore } from "../../src/store/sqlite-provider.ts";
 import type { Database } from "bun:sqlite";
 
 function createTestStore() {
-  const db = createDatabase(":memory:");
-  return { store: createResourceStore(db), db };
+  return createSqliteStore(":memory:");
 }
 
 describe("ResourceStore", () => {
@@ -121,12 +119,13 @@ describe("ResourceStore", () => {
     expect(versions[1]!.version_id).toBe(2);
   });
 
-  it("searches with SQL filters", () => {
+  it("searches with FHIR SearchFilters (token type)", () => {
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], gender: "male" });
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], gender: "female" });
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith2" }], gender: "male" });
 
-    const results = store.search("Patient", [{ column: "json:$.gender", op: "=", value: "male" }]);
+    const searchParams = new Map([["gender", { name: "gender", type: "token", jsonPath: "$.gender" }]]);
+    const results = store.search("Patient", [{ parameter: "gender", value: "male" }], searchParams);
     expect(results.length).toBe(2);
   });
 
@@ -134,7 +133,7 @@ describe("ResourceStore", () => {
     const p = store.create("Patient", { resourceType: "Patient", name: [{ family: "Doomed" }] });
     store.softDelete("Patient", p.id!);
 
-    const results = store.search("Patient", []);
+    const results = store.search("Patient", [], new Map());
     expect(results.length).toBe(0);
   });
 
@@ -143,31 +142,36 @@ describe("ResourceStore", () => {
       store.create("Patient", { resourceType: "Patient", name: [{ family: `Patient${i}` }] });
     }
 
-    const page1 = store.search("Patient", [], 0, 3);
+    const page1 = store.search("Patient", [], new Map(), 0, 3);
     expect(page1.length).toBe(3);
 
-    const page2 = store.search("Patient", [], 3, 3);
+    const page2 = store.search("Patient", [], new Map(), 3, 3);
     expect(page2.length).toBe(3);
 
-    const page4 = store.search("Patient", [], 9, 3);
+    const page4 = store.search("Patient", [], new Map(), 9, 3);
     expect(page4.length).toBe(1);
   });
 
-  it("count with filters", () => {
+  it("count with FHIR SearchFilters", () => {
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], gender: "male" });
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], gender: "female" });
 
-    const maleCount = store.count("Patient", [{ column: "json:$.gender", op: "=", value: "male" }]);
+    const searchParams = new Map([["gender", { name: "gender", type: "token", jsonPath: "$.gender" }]]);
+    const maleCount = store.count("Patient", [{ parameter: "gender", value: "male" }], searchParams);
     expect(maleCount).toBe(1);
 
-    const totalCount = store.count("Patient", []);
+    const totalCount = store.count("Patient", [], new Map());
     expect(totalCount).toBe(2);
   });
 
-  it("rejects invalid SQL operators", () => {
-    expect(() => {
-      store.search("Patient", [{ column: "json:$.gender", op: "DROP TABLE", value: "male" }]);
-    }).toThrow("Invalid SQL operator");
+  it("searches with FHIR SearchFilters (date prefix)", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], birthDate: "1990-01-01" });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], birthDate: "2000-01-01" });
+
+    const searchParams = new Map([["birthdate", { name: "birthdate", type: "date", jsonPath: "$.birthDate" }]]);
+    const results = store.search("Patient", [{ parameter: "birthdate", prefix: "ge", value: "1995-01-01" }], searchParams);
+    expect(results.length).toBe(1);
+    expect(results[0]!.name).toEqual([{ family: "Jones" }]);
   });
 
   it("transaction rolls back on error", () => {
@@ -180,7 +184,7 @@ describe("ResourceStore", () => {
       });
     } catch {}
 
-    const results = store.search("Patient", []);
+    const results = store.search("Patient", [], new Map());
     expect(results.length).toBe(1);
     expect(results[0]!.name).toEqual([{ family: "Before" }]);
   });
@@ -216,11 +220,12 @@ describe("ResourceStore", () => {
     expect(recreated.meta?.versionId).toBe("1");
   });
 
-  it("rejects invalid column names in search filters", () => {
+  it("rejects invalid column names via translation", () => {
     store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }] });
     expect(() => {
-      store.search("Patient", [{ column: "1=1 OR 1=1 --", op: "=", value: "x" }]);
-    }).toThrow("Invalid column");
+      const searchParams = new Map([["bad", { name: "bad", type: "string", jsonPath: "1=1 OR 1=1 --" }]]);
+      store.search("Patient", [{ parameter: "bad", value: "x" }], searchParams);
+    }).toThrow();
   });
 
   it("update ignores client meta.versionId and assigns next version", () => {
@@ -271,5 +276,49 @@ describe("ResourceStore", () => {
 
   it("isDeleted returns false for never-created id", () => {
     expect(store.isDeleted("Patient", "nonexistent")).toBe(false);
+  });
+
+  it("searches with FHIR SearchFilters (token type)", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], gender: "male" });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], gender: "female" });
+
+    const searchParams = new Map([["gender", { name: "gender", type: "token", jsonPath: "$.gender" }]]);
+    const results = store.search("Patient", [{ parameter: "gender", value: "male" }], searchParams);
+    expect(results.length).toBe(1);
+    expect(results[0]!.name).toEqual([{ family: "Smith" }]);
+  });
+
+  it("searches with FHIR SearchFilters (string type)", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], gender: "male" });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], gender: "female" });
+
+    const searchParams = new Map([["gender", { name: "gender", type: "token", jsonPath: "$.gender" }]]);
+    const results = store.search("Patient", [{ parameter: "gender", value: "male" }], searchParams);
+    expect(results.length).toBe(1);
+  });
+
+  it("counts with FHIR SearchFilters", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Smith" }], gender: "male" });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "Jones" }], gender: "female" });
+
+    const searchParams = new Map([["gender", { name: "gender", type: "token", jsonPath: "$.gender" }]]);
+    const count = store.count("Patient", [{ parameter: "gender", value: "male" }], searchParams);
+    expect(count).toBe(1);
+  });
+
+  it("search with empty SearchFilters returns all", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "A" }] });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "B" }] });
+
+    const results = store.search("Patient", [], new Map());
+    expect(results.length).toBe(2);
+  });
+
+  it("count with empty SearchFilters returns total", () => {
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "A" }] });
+    store.create("Patient", { resourceType: "Patient", name: [{ family: "B" }] });
+
+    const count = store.count("Patient", [], new Map());
+    expect(count).toBe(2);
   });
 });
