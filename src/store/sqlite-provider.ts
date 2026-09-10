@@ -81,14 +81,61 @@ export function sqliteFilterTranslator(
     const type = paramConfig.type;
 
     if (type === "string" || type === "uri") {
-      const escaped = escapeLikeValue(filter.value);
-      sqlFilters.push({
-        column: `json:${searchPath}`,
-        op: "LIKE",
-        value: `%${escaped}%`,
-      });
+      if (filter.modifier === "missing") {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: filter.value === "true" ? "IS NULL" : "IS NOT NULL",
+          value: "",
+        });
+      } else if (filter.modifier === "exact") {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: "=",
+          value: filter.value,
+        });
+      } else {
+        const escaped = escapeLikeValue(filter.value);
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: "LIKE",
+          value: `%${escaped}%`,
+        });
+      }
     } else if (type === "token") {
-      if (filter.value.includes("|")) {
+      if (filter.modifier === "missing") {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: filter.value === "true" ? "IS NULL" : "IS NOT NULL",
+          value: "",
+        });
+      } else if (filter.modifier === "not") {
+        const isComplexPath = searchPath.includes(".coding") || searchPath.includes(".identifier");
+        if (filter.value.includes("|")) {
+          const [system, code] = filter.value.split("|", 2);
+          const field = searchPath.includes(".identifier") ? "value" : "code";
+          const parts: string[] = [];
+          if (system) parts.push(`%"system":"${escapeLikeValue(system)}"%`);
+          if (code) parts.push(`%"${field}":"${escapeLikeValue(code)}"%`);
+          sqlFilters.push({
+            column: `json:${searchPath}`,
+            op: "NOT LIKE",
+            value: parts.join(`%`),
+          });
+        } else if (isComplexPath) {
+          const field = searchPath.includes(".coding") ? "code" : "value";
+          sqlFilters.push({
+            column: `json:${searchPath}`,
+            op: "NOT LIKE",
+            value: `%"${field}":"${escapeLikeValue(filter.value)}"%`,
+          });
+        } else {
+          sqlFilters.push({
+            column: `json:${searchPath}`,
+            op: "!=",
+            value: filter.value,
+          });
+        }
+      } else if (filter.value.includes("|")) {
         const [system, code] = filter.value.split("|", 2);
         const field = searchPath.includes(".identifier") ? "value" : "code";
         const parts: string[] = [];
@@ -117,18 +164,34 @@ export function sqliteFilterTranslator(
         }
       }
     } else if (type === "date" || type === "number" || type === "quantity") {
-      const op = getOperator(filter.prefix ?? "eq");
-      sqlFilters.push({
-        column: `json:${searchPath}`,
-        op,
-        value: filter.value,
-      });
+      if (filter.modifier === "missing") {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: filter.value === "true" ? "IS NULL" : "IS NOT NULL",
+          value: "",
+        });
+      } else {
+        const op = getOperator(filter.prefix ?? "eq");
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op,
+          value: filter.value,
+        });
+      }
     } else if (type === "reference") {
-      sqlFilters.push({
-        column: `json:${searchPath}`,
-        op: "=",
-        value: filter.value,
-      });
+      if (filter.modifier === "missing") {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: filter.value === "true" ? "IS NULL" : "IS NOT NULL",
+          value: "",
+        });
+      } else {
+        sqlFilters.push({
+          column: `json:${searchPath}`,
+          op: "=",
+          value: filter.value,
+        });
+      }
     } else {
       sqlFilters.push({
         column: `json:${searchPath}`,
@@ -152,7 +215,7 @@ interface ResourceRecord {
   data: string;
 }
 
-const ALLOWED_OPS = new Set(["=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE"]);
+const ALLOWED_OPS = new Set(["=", "!=", "<", ">", "<=", ">=", "LIKE", "NOT LIKE", "IS NULL", "IS NOT NULL"]);
 const ALLOWED_COLUMNS = new Set(["resource_type", "is_deleted", "last_updated", "version_id"]);
 
 function validateOp(op: string): void {
@@ -269,16 +332,23 @@ function createSqliteResourceStore(db: Database): ResourceStore {
         if (filter.column.startsWith("json:")) {
           const jsonPath = filter.column.slice(5);
           const pathParam = `$path${paramIndex}`;
-          if (filter.op === "LIKE" || filter.op === "NOT LIKE") {
-            clause += ` AND (CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value ${filter.op} ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) ${filter.op} ${paramName} ESCAPE '\\' END)`;
+          if (filter.op === "IS NULL" || filter.op === "IS NOT NULL") {
+            clause += ` AND json_extract(data, ${pathParam}) ${filter.op}`;
+          } else if (filter.op === "NOT LIKE") {
+            clause += ` AND (CASE WHEN json_type(data, ${pathParam}) = 'array' THEN NOT EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value LIKE ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) NOT LIKE ${paramName} ESCAPE '\\' END)`;
+            params[paramName] = filter.value;
+          } else if (filter.op === "LIKE") {
+            clause += ` AND (CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value LIKE ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) LIKE ${paramName} ESCAPE '\\' END)`;
+            params[paramName] = filter.value;
           } else {
             clause += ` AND json_extract(data, ${pathParam}) ${filter.op} ${paramName}`;
+            params[paramName] = filter.value;
           }
           params[pathParam] = jsonPath;
         } else {
           clause += ` AND ${filter.column} ${filter.op} ${paramName}`;
+          params[paramName] = filter.value;
         }
-        params[paramName] = filter.value;
         paramIndex++;
       } else {
         const orParts: string[] = [];
@@ -290,16 +360,27 @@ function createSqliteResourceStore(db: Database): ResourceStore {
           if (filter.column.startsWith("json:")) {
             const jsonPath = filter.column.slice(5);
             const pathParam = `$path${paramIndex}`;
-            if (filter.op === "LIKE" || filter.op === "NOT LIKE") {
-              orParts.push(`(CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value ${filter.op} ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) ${filter.op} ${paramName} ESCAPE '\\' END)`);
+            if (filter.op === "IS NULL" || filter.op === "IS NOT NULL") {
+              orParts.push(`json_extract(data, ${pathParam}) ${filter.op}`);
+            } else if (filter.op === "NOT LIKE") {
+              orParts.push(`(CASE WHEN json_type(data, ${pathParam}) = 'array' THEN NOT EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value LIKE ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) NOT LIKE ${paramName} ESCAPE '\\' END)`);
+              params[paramName] = filter.value;
+            } else if (filter.op === "LIKE") {
+              orParts.push(`(CASE WHEN json_type(data, ${pathParam}) = 'array' THEN EXISTS (SELECT 1 FROM json_each(json_extract(data, ${pathParam})) WHERE json_each.value LIKE ${paramName} ESCAPE '\\') ELSE json_extract(data, ${pathParam}) LIKE ${paramName} ESCAPE '\\' END)`);
+              params[paramName] = filter.value;
             } else {
               orParts.push(`json_extract(data, ${pathParam}) ${filter.op} ${paramName}`);
+              params[paramName] = filter.value;
             }
             params[pathParam] = jsonPath;
           } else {
-            orParts.push(`${filter.column} ${filter.op} ${paramName}`);
+            if (filter.op === "IS NULL" || filter.op === "IS NOT NULL") {
+              orParts.push(`${filter.column} ${filter.op}`);
+            } else {
+              orParts.push(`${filter.column} ${filter.op} ${paramName}`);
+              params[paramName] = filter.value;
+            }
           }
-          params[paramName] = filter.value;
           paramIndex++;
         }
         clause += ` AND (${orParts.join(" OR ")})`;

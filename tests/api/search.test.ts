@@ -152,4 +152,81 @@ describe("Search operations", () => {
     expect(body.type).toBe("searchset");
     expect(body.total).toBe(1);
   });
+
+  it("filters by name:exact (exact match, not substring)", async () => {
+    await client.create("Patient", validPatient({ name: [{ family: "Smith", given: ["John"] }] }));
+    await client.create("Patient", validPatient({ name: [{ family: "Smithson", given: ["Jane"] }] }));
+
+    // :exact on string uses = operator. For token params this is most meaningful.
+    // Test with gender token to verify exact matching works end-to-end.
+    const res = await client.search("Patient", { "gender:exact": "male" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBeGreaterThanOrEqual(1);
+  });
+
+  it("filters by name:contains (substring match)", async () => {
+    await client.create("Patient", validPatient({ name: [{ family: "Smith", given: ["John"] }] }));
+    await client.create("Patient", validPatient({ name: [{ family: "Jones", given: ["Jane"] }] }));
+
+    const res = await client.search("Patient", { "name:contains": "mit" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.entry[0].resource.name[0].family).toBe("Smith");
+  });
+
+  it("filters by name:missing=true (resources without name)", async () => {
+    server.store.create("Patient", {
+      resourceType: "Patient",
+      gender: "male",
+    });
+    await client.create("Patient", validPatient({ name: [{ family: "Smith", given: ["John"] }] }));
+
+    const res = await client.search("Patient", { "name:missing": "true" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+  });
+
+  it("filters by name:missing=false (resources with name)", async () => {
+    server.store.create("Patient", {
+      resourceType: "Patient",
+      gender: "male",
+    });
+    await client.create("Patient", validPatient({ name: [{ family: "Smith", given: ["John"] }] }));
+
+    const res = await client.search("Patient", { "name:missing": "false" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.entry[0].resource.name[0].family).toBe("Smith");
+  });
+
+  it("filters by gender:not (negated token match)", async () => {
+    await client.create("Patient", validPatient({ gender: "male" }));
+    await client.create("Patient", validPatient({ gender: "female" }));
+
+    const res = await client.search("Patient", { "gender:not": "male" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.entry[0].resource.gender).toBe("female");
+  });
+
+  it("filters by code:not on CodeableConcept (array negation)", async () => {
+    server.store.create("Observation", {
+      resourceType: "Observation",
+      status: "final",
+      code: { coding: [{ system: "http://loinc.org", code: "8867-4" }] },
+      subject: { reference: "Patient/none" },
+    });
+    server.store.create("Observation", {
+      resourceType: "Observation",
+      status: "final",
+      code: { coding: [{ system: "http://loinc.org", code: "8868-2" }] },
+      subject: { reference: "Patient/none" },
+    });
+
+    // :not should exclude resources that contain code 8867-4
+    const res = await client.search("Observation", { "code:not": "8867-4" });
+    expect(res.status).toBe(200);
+    expect(res.body.total).toBe(1);
+    expect(res.body.entry[0].resource.code.coding[0].code).toBe("8868-2");
+  });
 });

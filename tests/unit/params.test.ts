@@ -206,6 +206,40 @@ describe("sqliteFilterTranslator", () => {
     expect(sqlFilters[0]!.value).toContain('"system":"http://loinc.org"');
   });
 
+  it("converts string filter with :exact to exact match", () => {
+    const filters = parseSearchParams("name:exact=Smith", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.column).toBe("json:$.name");
+    expect(sqlFilters[0]!.op).toBe("=");
+    expect(sqlFilters[0]!.value).toBe("Smith");
+  });
+
+  it("converts :missing=true to IS NULL check", () => {
+    const filters = parseSearchParams("name:missing=true", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.column).toBe("json:$.name");
+    expect(sqlFilters[0]!.op).toBe("IS NULL");
+  });
+
+  it("converts :missing=false to IS NOT NULL check", () => {
+    const filters = parseSearchParams("name:missing=false", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.column).toBe("json:$.name");
+    expect(sqlFilters[0]!.op).toBe("IS NOT NULL");
+  });
+
+  it("converts token filter with :not to negated match", () => {
+    const filters = parseSearchParams("gender:not=male", searchParams);
+    const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
+    expect(sqlFilters.length).toBe(1);
+    expect(sqlFilters[0]!.column).toBe("json:$.gender");
+    expect(sqlFilters[0]!.op).toBe("!=");
+    expect(sqlFilters[0]!.value).toBe("male");
+  });
+
   it("escapes backslash in string values", () => {
     const filters = parseSearchParams("name=path\\to\\file", searchParams);
     const sqlFilters = sqliteFilterTranslator(filters, searchParams) as Array<{ column: string; op: string; value: string }>;
