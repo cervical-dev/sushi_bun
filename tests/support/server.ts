@@ -6,9 +6,6 @@ import { loadValidators } from "../../src/fhir/validator-loader.ts";
 import { fallbackFetch } from "../../src/router/fallback.ts";
 import { loadSearchParameters, applyResolvedMapping } from "../../src/fhir/search-param-loader.ts";
 import { createSqliteStore } from "../../src/store/sqlite-provider.ts";
-import { writeFileSync, unlinkSync } from "fs";
-import { join } from "path";
-import { tmpdir } from "os";
 import type { RouteConfig } from "../../src/fhir/types.ts";
 import type { ResourceStore } from "../../src/store/types.ts";
 
@@ -24,19 +21,13 @@ export function createTestStore(): { store: ResourceStore; db: Database } {
 
 async function buildServer(
   capabilityJson: Record<string, unknown>,
-  capabilityPath: string,
-  sdDir?: string
+  sdDir: string
 ): Promise<TestServer> {
   const config: RouteConfig = parseCapabilityStatement(capabilityJson as any);
 
-  const resolvedSdDir = sdDir ??
-    ((capabilityPath.includes("/")
-      ? capabilityPath.substring(0, capabilityPath.lastIndexOf("/"))
-      : "fsh-generated/resources") || "fsh-generated/resources");
-
   const [validators, searchParameters] = await Promise.all([
-    loadValidators(resolvedSdDir),
-    loadSearchParameters(resolvedSdDir),
+    loadValidators(sdDir),
+    loadSearchParameters(sdDir),
   ]);
 
   applyResolvedMapping(config, searchParameters);
@@ -66,19 +57,15 @@ export async function createTestServer(
 ): Promise<TestServer> {
   const capabilityFile = Bun.file(capabilityPath);
   const capabilityJson = (await capabilityFile.json()) as Record<string, unknown>;
-  return buildServer(capabilityJson, capabilityPath);
+  const sdDir = capabilityPath.includes("/")
+    ? capabilityPath.substring(0, capabilityPath.lastIndexOf("/"))
+    : "fsh-generated/resources";
+  return buildServer(capabilityJson, sdDir || "fsh-generated/resources");
 }
 
 export async function createTestServerWithCapability(
   capability: Record<string, unknown>,
   options?: { sdDir?: string }
 ): Promise<TestServer> {
-  const tmpFile = join(tmpdir(), `capability-${Date.now()}-${Math.random().toString(36).slice(2)}.json`);
-  writeFileSync(tmpFile, JSON.stringify(capability));
-  try {
-    return await buildServer(capability, tmpFile, options?.sdDir);
-  } catch (err) {
-    try { unlinkSync(tmpFile); } catch {}
-    throw err;
-  }
+  return buildServer(capability, options?.sdDir ?? "fsh-generated/resources");
 }
