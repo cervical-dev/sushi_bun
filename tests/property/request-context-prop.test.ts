@@ -9,13 +9,7 @@ function makeConfig(type: string, interactions: string[]): ResourceConfig {
     interactions: new Set(interactions),
     searchParams: new Map(),
     operations: [],
-    versioning: "versioned",
-    readHistory: true,
     updateCreate: false,
-    conditionalCreate: false,
-    conditionalRead: "not-supported",
-    conditionalUpdate: false,
-    conditionalDelete: "not-supported",
   };
 }
 

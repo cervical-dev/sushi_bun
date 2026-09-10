@@ -13,6 +13,57 @@ interface MethodHandlers {
 
 type GeneratedRoutes = Record<string, MethodHandlers | RouteHandler>;
 
+function computeRequiredHandlerKeys(config: RouteConfig): Set<keyof HandlerProvider> {
+  const required = new Set<keyof HandlerProvider>();
+
+  for (const [, rc] of config.resources) {
+    if (rc.interactions.has("search-type")) {
+      required.add("handleSearch");
+      required.add("handlePostSearch");
+    }
+    if (rc.interactions.has("create")) required.add("handleCreate");
+    if (rc.interactions.has("read")) required.add("handleRead");
+    if (rc.interactions.has("update")) required.add("handleUpdate");
+    if (rc.interactions.has("delete")) required.add("handleDelete");
+    if (rc.interactions.has("patch")) required.add("handlePatch");
+    if (rc.interactions.has("history-instance")) {
+      required.add("handleRead");
+      required.add("handleHistory");
+    }
+    if (rc.interactions.has("history-type")) required.add("handleTypeHistory");
+    for (const _op of rc.operations) {
+      required.add("handleOperation");
+    }
+  }
+
+  if (config.systemInteractions.has("batch") || config.systemInteractions.has("transaction")) {
+    required.add("handleBatch");
+  }
+  if (config.systemInteractions.has("history-system")) {
+    required.add("handleSystemHistory");
+  }
+  for (const _op of config.systemOperations ?? []) {
+    required.add("handleSystemOperation");
+  }
+
+  return required;
+}
+
+export function validateHandlerKeys(config: RouteConfig, handlers: HandlerProvider): void {
+  const required = computeRequiredHandlerKeys(config);
+
+  const providedKeys = Object.keys(handlers).filter(
+    (k) => k !== "validators" && k !== "handleMetadata" && typeof (handlers as any)[k] === "function"
+  ) as Array<keyof HandlerProvider>;
+
+  const surplus = providedKeys.filter((k) => !required.has(k));
+  if (surplus.length > 0) {
+    throw new Error(
+      `Surplus handlers not needed by the CapabilityStatement: ${surplus.join(", ")}`
+    );
+  }
+}
+
 function wrapWithAcceptCheck(handler: RouteHandler): RouteHandler {
   return (req) => {
     if (!isAcceptable(req.headers.get("Accept"))) {
@@ -40,9 +91,16 @@ export function buildRoutes(
 ): GeneratedRoutes {
   const routes: GeneratedRoutes = {};
 
+  const required = computeRequiredHandlerKeys(config);
+
+  const missing = [...required].filter((key) => typeof handlers[key] !== "function");
+  if (missing.length > 0) {
+    throw new Error(`Missing required handlers: ${missing.join(", ")}`);
+  }
+
   routes["/metadata"] = wrapWithAcceptCheck((req) => (handlers.handleMetadata ?? handleMetadata)(req, capabilityJson));
 
-  routes["/"] = {
+  const rootRoute: MethodHandlers = {
     GET: wrapWithAcceptCheck((_req) => {
       return Response.json(
         {
@@ -52,8 +110,13 @@ export function buildRoutes(
         { status: 200, headers: { "Content-Type": "application/fhir+json" } }
       );
     }),
-    POST: wrapWithAcceptCheck((req) => handlers.handleBatch!(req, config)),
   };
+
+  if (config.systemInteractions.has("batch") || config.systemInteractions.has("transaction")) {
+    rootRoute.POST = wrapWithAcceptCheck((req) => handlers.handleBatch!(req, config));
+  }
+
+  routes["/"] = rootRoute;
 
   for (const [resourceType, resourceConfig] of config.resources) {
     const typeHandlers: MethodHandlers = {};

@@ -1,6 +1,6 @@
 import type { ResourceConfig, Bundle, BundleEntry, BundleLink } from "../fhir/types.ts";
 import type { ResourceStore } from "../store/types.ts";
-import { parseSearchParams } from "../router/params.ts";
+import { parseSearchParams, parsePaging } from "../router/params.ts";
 import { createOperationOutcome } from "./outcome.ts";
 import { resolveContext } from "./request-context.ts";
 
@@ -13,11 +13,7 @@ export function handleSearch(
   if (!resolved.ok) return resolved.outcome;
   const { resourceType, url } = resolved.ctx;
 
-  const countParam = url.searchParams.get("_count");
-  const offsetParam = url.searchParams.get("_offset");
-  const parsedCount = countParam != null ? parseInt(countParam, 10) : NaN;
-  const count = Number.isNaN(parsedCount) ? 20 : Math.max(Math.min(parsedCount, 100), 0);
-  const offset = Math.max(offsetParam ? (parseInt(offsetParam, 10) || 0) : 0, 0);
+  const { count, offset } = parsePaging(url.searchParams);
 
   const searchFilters = parseSearchParams(url.searchParams.toString(), config.searchParams);
 

@@ -183,8 +183,8 @@ The suite covers unit, API, and property-based (fast-check fuzz) tests.
 ### Add a new operation
 
 1. Add an `operation` block to the relevant resource in `capability.fsh`
-2. Rebuild and restart
-3. Implement the handler in `src/handlers/operations.ts`
+2. Implement the handler
+3. Rebuild and restart
 
 ### Add a new search parameter
 
@@ -192,9 +192,88 @@ The suite covers unit, API, and property-based (fast-check fuzz) tests.
 2. Reference it from the resource's `searchParam` block in `capability.fsh`
 3. Rebuild and restart
 
-### Bring your own handlers or storage
+### Bring your own handlers
 
-Pass a `handlers` object to `createServer` to override any FHIR interaction; the rest use the built-in defaults (see `src/handlers/types.ts`). To use a different backend, implement the `ResourceStore` and `StorageProvider` interfaces in `src/store/types.ts` — the SQLite provider is the reference implementation.
+Pass a `handlers` object to `createServer` to replace the built-in default FHIR interactions.
+
+Provide exactly the interactions your CapabilityStatement declares, no more, no less.
+
+A starter kit of FHIR helpers is available from [`src/byoh.ts`](src/byoh.ts).
+
+```ts
+import { createServer } from "./src/server.ts";
+import { createSqliteStore } from "./src/store/sqlite-provider.ts";
+import {
+  loadValidators, resolveContext, parseAndValidateBody,
+  respondWithResource, parseSearchParams, parsePaging,
+} from "./src/byoh.ts";
+import type { ResourceConfig, FhirResource } from "./src/byoh.ts";
+
+const { store } = createSqliteStore();
+const validators = await loadValidators("fsh-generated/resources");
+
+async function handleCreate(req: Request, config: ResourceConfig): Promise<Response> {
+  const resolved = resolveContext(req, config, { interaction: "create" });
+  if (!resolved.ok) return resolved.outcome;
+
+  const parsed = await parseAndValidateBody(req, resolved.ctx, validators, {
+    contentTypes: ["application/fhir+json"], validateAs: "resource",
+  });
+  if (!parsed.ok) return parsed.outcome;
+
+  // your business logic: enrich, transform, fire side-effects, ...
+
+  const created = store.create(config.type, parsed.body as FhirResource);
+  return respondWithResource(created, resolved.ctx.baseUrl, 201);
+}
+
+function handleSearch(req: Request, config: ResourceConfig): Response {
+  const resolved = resolveContext(req, config, { interaction: "search-type" });
+  if (!resolved.ok) return resolved.outcome;
+
+  const { count, offset } = parsePaging(resolved.ctx.url.searchParams);
+  const filters = parseSearchParams(resolved.ctx.url.searchParams.toString(), config.searchParams);
+
+  // your business search logic: apply `filters`, audit access, ...
+
+  const hits = store.search(config.type, filters, config.searchParams, offset, count);
+  return Response.json({
+    resourceType: "Bundle", type: "searchset", total: hits.length,
+    entry: hits.map((r) => ({ fullUrl: `${config.type}/${r.id}`, resource: r })),
+  });
+}
+
+await createServer({
+  port: 3000,
+  capabilityPath: "fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json",
+  handlers: { handleCreate, handleSearch },
+});
+```
+
+Handlers are plain `(req, config)` functions that close over their own `store` and `validators`.
+
+### Bring your own storage
+
+Implement the `ResourceStore` interface and pass it to `defaultHandlers`:
+
+```ts
+import { createServer } from "./src/server.ts";
+import { defaultHandlers } from "./src/handlers/default.ts";
+import { loadValidators } from "./src/byoh.ts";
+import type { ResourceStore } from "./src/byoh.ts";
+
+const memoryStore = { /* implement the ResourceStore methods */ } as ResourceStore;
+const validators = await loadValidators("fsh-generated/resources");
+const handlers = await defaultHandlers(memoryStore, validators);
+
+await createServer({
+  port: 3000,
+  capabilityPath: "fsh-generated/resources/CapabilityStatement-MyCapabilityStatement.json",
+  handlers,
+});
+```
+
+See [`src/store/sqlite-provider.ts`](src/store/sqlite-provider.ts) for an example implementation.
 
 ## License
 

@@ -21,13 +21,7 @@ export const fullCapability = {
             { code: "history-instance" },
             { code: "history-type" },
           ],
-          versioning: "versioned-update",
-          readHistory: true,
           updateCreate: true,
-          conditionalCreate: true,
-          conditionalRead: "full-support",
-          conditionalUpdate: true,
-          conditionalDelete: "single",
           searchParam: [
             { name: "name", type: "string" },
             { name: "family", type: "string" },
@@ -149,8 +143,6 @@ export const noUpdateCreateCapability = {
             { code: "history-instance" },
             { code: "history-type" },
           ],
-          versioning: "versioned-update",
-          readHistory: true,
           updateCreate: false,
           searchParam: [
             { name: "name", type: "string" },

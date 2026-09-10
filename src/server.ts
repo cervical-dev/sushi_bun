@@ -1,5 +1,5 @@
 import { parseCapabilityStatement } from "./fhir/capability.ts";
-import { buildRoutes } from "./router/generator.ts";
+import { buildRoutes, validateHandlerKeys } from "./router/generator.ts";
 import { defaultHandlers } from "./handlers/default.ts";
 import { loadValidators } from "./fhir/validator-loader.ts";
 import { fallbackFetch } from "./router/fallback.ts";
@@ -30,7 +30,14 @@ export async function createServer(serverConfig: ServerConfig) {
 
   applyResolvedMapping(config, searchParameters);
 
-  const handlers = serverConfig.handlers ?? await defaultHandlers(undefined, validators);
+  let handlers: HandlerProvider;
+  if (serverConfig.handlers) {
+    validateHandlerKeys(config, serverConfig.handlers);
+    handlers = serverConfig.handlers;
+  } else {
+    handlers = await defaultHandlers(undefined, validators);
+  }
+
   const routes = buildRoutes(config, capabilityJson, handlers);
 
   const server = Bun.serve({

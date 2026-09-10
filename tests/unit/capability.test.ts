@@ -79,4 +79,70 @@ describe("parseCapabilityStatement", () => {
     expect(params.get("gender")!.type).toBe("token");
     expect(params.get("birthdate")!.type).toBe("date");
   });
+
+  it("only outputs handler-relevant fields on ResourceConfig", () => {
+    const cap = {
+      resourceType: "CapabilityStatement" as const,
+      rest: [
+        {
+          mode: "server",
+          resource: [
+            {
+              type: "Patient",
+              interaction: [{ code: "read" }],
+              searchParam: [{ name: "name", type: "string" }],
+              operation: [{ name: "everything", definition: "op" }],
+              updateCreate: true,
+            },
+          ],
+        },
+      ],
+    };
+
+    const config = parseCapabilityStatement(cap);
+    const rc = config.resources.get("Patient")!;
+
+    const keys = Object.keys(rc).sort();
+    expect(keys).toEqual([
+      "interactions",
+      "operations",
+      "searchParams",
+      "type",
+      "updateCreate",
+    ]);
+
+    expect(rc.updateCreate).toBe(true);
+  });
+
+  it("defaults updateCreate to false", () => {
+    const cap = {
+      resourceType: "CapabilityStatement" as const,
+      rest: [{ mode: "server", resource: [{ type: "Patient" }] }],
+    };
+
+    const config = parseCapabilityStatement(cap);
+    expect(config.resources.get("Patient")!.updateCreate).toBe(false);
+  });
+
+  it("does not include documentation or definition on SearchParamConfig", () => {
+    const cap = {
+      resourceType: "CapabilityStatement" as const,
+      rest: [
+        {
+          mode: "server",
+          resource: [
+            {
+              type: "Patient",
+              searchParam: [{ name: "name", type: "string", documentation: "The name", definition: "http://example.org" }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const config = parseCapabilityStatement(cap);
+    const param = config.resources.get("Patient")!.searchParams.get("name")!;
+    const paramKeys = Object.keys(param).sort();
+    expect(paramKeys).toEqual(["name", "type"]);
+  });
 });

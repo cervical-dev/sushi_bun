@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { parseSearchParams } from "../../src/router/params.ts";
+import { parseSearchParams, parsePaging } from "../../src/router/params.ts";
 import { sqliteFilterTranslator } from "../../src/store/sqlite-provider.ts";
 
 describe("parseSearchParams", () => {
@@ -67,6 +67,43 @@ describe("parseSearchParams", () => {
     expect(filters.length).toBe(1);
     expect(filters[0]!.prefix).toBe("eb");
     expect(filters[0]!.value).toBe("2020-01-01");
+  });
+});
+
+describe("parsePaging", () => {
+  it("returns defaults when no params given", () => {
+    const sp = new URLSearchParams();
+    expect(parsePaging(sp)).toEqual({ count: 20, offset: 0 });
+  });
+
+  it("parses _count and _offset", () => {
+    const sp = new URLSearchParams("_count=10&_offset=5");
+    expect(parsePaging(sp)).toEqual({ count: 10, offset: 5 });
+  });
+
+  it("clamps _count to 100 max", () => {
+    const sp = new URLSearchParams("_count=500");
+    expect(parsePaging(sp).count).toBe(100);
+  });
+
+  it("clamps _count to 0 min", () => {
+    const sp = new URLSearchParams("_count=-5");
+    expect(parsePaging(sp).count).toBe(0);
+  });
+
+  it("defaults _count to 20 on NaN", () => {
+    const sp = new URLSearchParams("_count=abc");
+    expect(parsePaging(sp).count).toBe(20);
+  });
+
+  it("floors negative _offset to 0", () => {
+    const sp = new URLSearchParams("_offset=-10");
+    expect(parsePaging(sp).offset).toBe(0);
+  });
+
+  it("floors non-numeric _offset to 0", () => {
+    const sp = new URLSearchParams("_offset=xyz");
+    expect(parsePaging(sp).offset).toBe(0);
   });
 });
 

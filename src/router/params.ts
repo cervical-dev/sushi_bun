@@ -37,6 +37,20 @@ export function parseSearchParams(
   return filters;
 }
 
+export interface Paging {
+  count: number;
+  offset: number;
+}
+
+export function parsePaging(urlSearchParams: URLSearchParams): Paging {
+  const countParam = urlSearchParams.get("_count");
+  const offsetParam = urlSearchParams.get("_offset");
+  const parsedCount = countParam != null ? parseInt(countParam, 10) : NaN;
+  const count = Number.isNaN(parsedCount) ? 20 : Math.max(Math.min(parsedCount, 100), 0);
+  const offset = Math.max(offsetParam ? (parseInt(offsetParam, 10) || 0) : 0, 0);
+  return { count, offset };
+}
+
 function parseValue(value: string, type: string): Array<{ prefix?: string; value: string }> {
   if (type === "string" || type === "uri") {
     if (value.includes(",")) {

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 import { createTestStore } from "../support/index.ts";
-import { buildRoutes } from "../../src/router/generator.ts";
+import { buildRoutes, validateHandlerKeys } from "../../src/router/generator.ts";
 import { defaultHandlers } from "../../src/handlers/default.ts";
 import type { RouteConfig } from "../../src/fhir/types.ts";
 
@@ -31,13 +31,7 @@ describe("buildRoutes", () => {
             interactions: new Set(["read", "search-type", "create", "update", "delete", "history-instance"]),
             searchParams: new Map(),
             operations: [],
-            versioning: "versioned-update",
-            readHistory: true,
             updateCreate: true,
-            conditionalCreate: false,
-            conditionalRead: "not-supported",
-            conditionalUpdate: false,
-            conditionalDelete: "not-supported",
           },
         ],
       ]),
@@ -71,13 +65,7 @@ describe("buildRoutes", () => {
             interactions: new Set(["read", "search-type"]),
             searchParams: new Map(),
             operations: [],
-            versioning: "no-version",
-            readHistory: false,
             updateCreate: false,
-            conditionalCreate: false,
-            conditionalRead: "not-supported",
-            conditionalUpdate: false,
-            conditionalDelete: "not-supported",
           },
         ],
       ]),
@@ -102,13 +90,7 @@ describe("buildRoutes", () => {
             interactions: new Set(["read"]),
             searchParams: new Map(),
             operations: [],
-            versioning: "no-version",
-            readHistory: false,
             updateCreate: false,
-            conditionalCreate: false,
-            conditionalRead: "not-supported",
-            conditionalUpdate: false,
-            conditionalDelete: "not-supported",
           },
         ],
       ]),
@@ -130,6 +112,19 @@ describe("buildRoutes", () => {
     expect(routes["/"]).toBeDefined();
   });
 
+  it("does not generate POST / route when batch and transaction are not declared", async () => {
+    const config: RouteConfig = {
+      resources: new Map(),
+      systemInteractions: new Set(["history-system"]),
+    };
+
+    const routes = await makeRoutes(config);
+    const rootRoute = routes["/"] as any;
+    expect(rootRoute).toBeDefined();
+    expect(rootRoute.POST).toBeUndefined();
+    expect(rootRoute.GET).toBeDefined();
+  });
+
   it("generates operation routes from capability", async () => {
     const config: RouteConfig = {
       resources: new Map([
@@ -140,13 +135,7 @@ describe("buildRoutes", () => {
             interactions: new Set(["read"]),
             searchParams: new Map(),
             operations: [{ name: "everything", definition: "http://hl7.org/fhir/OperationDefinition/Patient-everything" }],
-            versioning: "no-version",
-            readHistory: false,
             updateCreate: false,
-            conditionalCreate: false,
-            conditionalRead: "not-supported",
-            conditionalUpdate: false,
-            conditionalDelete: "not-supported",
           },
         ],
       ]),
@@ -157,6 +146,153 @@ describe("buildRoutes", () => {
     expect(routes["/Patient/$everything"]).toBeDefined();
     const opHandlers = routes["/Patient/$everything"] as any;
     expect(opHandlers.POST).toBeDefined();
+  });
+});
+
+describe("handler validation", () => {
+  const patientConfig: RouteConfig = {
+    resources: new Map([
+      [
+        "Patient",
+        {
+          type: "Patient",
+          interactions: new Set(["read", "search-type", "create", "update", "delete", "patch", "history-instance"]),
+          searchParams: new Map(),
+          operations: [{ name: "everything", definition: "http://hl7.org/fhir/OperationDefinition/Patient-everything" }],
+            updateCreate: true,
+        },
+      ],
+    ]),
+    systemInteractions: new Set(["batch", "transaction", "history-system"]),
+  };
+
+  function makeHandler(overrides: Record<string, any>) {
+    const base: Record<string, any> = {};
+    return base as any;
+  }
+
+  it("throws when a declared interaction is missing its handler", async () => {
+    const handlers = makeHandler({});
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handleRead/i);
+  });
+
+  it("throws when search-type is declared but handleSearch is missing", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+    } as any;
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handleSearch/i);
+  });
+
+  it("throws when search-type is declared but handlePostSearch is missing", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+      handleSearch: () => new Response(),
+    } as any;
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handlePostSearch/i);
+  });
+
+  it("throws when history-instance is declared but handleRead is missing (vread route)", async () => {
+    const config: RouteConfig = {
+      resources: new Map([
+        [
+          "Patient",
+          {
+            type: "Patient",
+            interactions: new Set(["read", "history-instance"]),
+            searchParams: new Map(),
+            operations: [],
+            updateCreate: true,
+          },
+        ],
+      ]),
+      systemInteractions: new Set(),
+    };
+    const handlers = makeHandler({});
+    expect(() => buildRoutes(config, {}, handlers)).toThrow(/handleRead/);
+  });
+
+  it("throws when batch is declared but handleBatch is missing", async () => {
+    const handlers = makeHandler({});
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handleBatch/i);
+  });
+
+  it("throws when history-system is declared but handleSystemHistory is missing", async () => {
+    const handlers = makeHandler({});
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handleSystemHistory/i);
+  });
+
+  it("throws when an operation is declared but handleOperation is missing", async () => {
+    const handlers = makeHandler({});
+    expect(() => buildRoutes(patientConfig, {}, handlers)).toThrow(/handleOperation/i);
+  });
+
+  it("does not throw when all required handlers are provided", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+      handleSearch: () => new Response(),
+      handlePostSearch: () => new Response(),
+      handleCreate: () => new Response(),
+      handleUpdate: () => new Response(),
+      handleDelete: () => new Response(),
+      handlePatch: () => new Response(),
+      handleHistory: () => new Response(),
+      handleTypeHistory: () => new Response(),
+      handleSystemHistory: () => new Response(),
+      handleBatch: () => new Response(),
+      handleOperation: () => new Response(),
+      handleSystemOperation: () => new Response(),
+      handleMetadata: () => new Response(),
+    } as any;
+    expect(() => buildRoutes(patientConfig, {}, handlers)).not.toThrow();
+  });
+});
+
+describe("validateHandlerKeys", () => {
+  const readOnlyConfig: RouteConfig = {
+    resources: new Map([
+      [
+        "Patient",
+          {
+          type: "Patient",
+          interactions: new Set(["read"]),
+          searchParams: new Map(),
+          operations: [],
+          updateCreate: false,
+        },
+      ],
+    ]),
+    systemInteractions: new Set(),
+  };
+
+  it("does not throw when provided handlers exactly match required", async () => {
+    const handlers = { handleRead: () => new Response() } as any;
+    expect(() => validateHandlerKeys(readOnlyConfig, handlers)).not.toThrow();
+  });
+
+  it("does not throw when handleMetadata is provided (always used)", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+      handleMetadata: () => new Response(),
+    } as any;
+    expect(() => validateHandlerKeys(readOnlyConfig, handlers)).not.toThrow();
+  });
+
+  it("throws when handlePatch is provided but config has no patch interaction", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+      handlePatch: () => new Response(),
+    } as any;
+    expect(() => validateHandlerKeys(readOnlyConfig, handlers)).toThrow(/handlePatch/i);
+  });
+
+  it("throws listing all surplus handlers", async () => {
+    const handlers = {
+      handleRead: () => new Response(),
+      handlePatch: () => new Response(),
+      handleDelete: () => new Response(),
+      handleBatch: () => new Response(),
+    } as any;
+    expect(() => validateHandlerKeys(readOnlyConfig, handlers)).toThrow(/handlePatch.*handleDelete.*handleBatch|handleBatch.*handleDelete.*handlePatch/);
   });
 });
 

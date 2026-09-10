@@ -51,8 +51,6 @@ export function parseCapabilityStatement(capability: CapabilityStatementJson): R
           searchParams.set(param.name, {
             name: param.name,
             type: param.type,
-            documentation: param.documentation,
-            definition: param.definition,
           });
         }
       }
@@ -69,13 +67,7 @@ export function parseCapabilityStatement(capability: CapabilityStatementJson): R
         interactions,
         searchParams,
         operations,
-        versioning: resource.versioning ?? "no-version",
-        readHistory: resource.readHistory ?? false,
         updateCreate: resource.updateCreate ?? false,
-        conditionalCreate: resource.conditionalCreate ?? false,
-        conditionalRead: resource.conditionalRead ?? "not-supported",
-        conditionalUpdate: resource.conditionalUpdate ?? false,
-        conditionalDelete: resource.conditionalDelete ?? "not-supported",
       });
     }
   }

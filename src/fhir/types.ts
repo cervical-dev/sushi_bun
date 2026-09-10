@@ -50,13 +50,7 @@ export interface ResourceConfig {
   interactions: Set<string>;
   searchParams: Map<string, SearchParamConfig>;
   operations: OperationConfig[];
-  versioning: string;
-  readHistory: boolean;
   updateCreate: boolean;
-  conditionalCreate: boolean;
-  conditionalRead: string;
-  conditionalUpdate: boolean;
-  conditionalDelete: string;
 }
 
 export interface OperationConfig {
@@ -67,8 +61,6 @@ export interface OperationConfig {
 export interface SearchParamConfig {
   name: string;
   type: string;
-  documentation?: string;
-  definition?: string;
   jsonPath?: string;
   searchPath?: string;
 }
